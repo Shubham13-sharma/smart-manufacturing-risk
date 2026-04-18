@@ -86,7 +86,8 @@ with tab2:
     else:
         st.success(f"✅ Low Risk ({probability:.2%})")
 
-    st.write("Recommendation:", recommendation)
+    st.subheader("Smart Recommendation Engine")
+    st.success(recommendation)
 
 # ================= ANALYTICS =================
 with tab3:
@@ -97,6 +98,7 @@ with tab3:
     except:
         df = input_df.copy()
 
+    # Add predictions
     if "predicted_risk" not in df.columns:
         df["predicted_risk"] = model.predict(df[feature_columns])
         df["risk_probability"] = model.predict_proba(df[feature_columns])[:, 1]
@@ -106,7 +108,7 @@ with tab3:
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Total Machines", len(df))
-    col2.metric("High Risk", int((df["predicted_risk"] == 1).sum()))
+    col2.metric("High Risk Machines", int((df["predicted_risk"] == 1).sum()))
     col3.metric("Avg Risk %", f"{df['risk_probability'].mean()*100:.1f}%")
 
     # Trend
@@ -124,14 +126,22 @@ with tab3:
 
     # Feature Importance
     st.subheader("Feature Importance")
-    if hasattr(model, "feature_importances_"):
-        imp_df = pd.DataFrame({
-            "Feature": feature_columns,
-            "Importance": model.feature_importances_
-        }).sort_values(by="Importance", ascending=False)
+    try:
+        if hasattr(model, "named_steps"):
+            clf = model.named_steps["clf"]
+        else:
+            clf = model
 
-        fig = px.bar(imp_df, x="Importance", y="Feature", orientation="h")
-        st.plotly_chart(fig, use_container_width=True)
+        if hasattr(clf, "feature_importances_"):
+            imp_df = pd.DataFrame({
+                "Feature": feature_columns,
+                "Importance": clf.feature_importances_
+            }).sort_values(by="Importance", ascending=False)
+
+            fig = px.bar(imp_df, x="Importance", y="Feature", orientation="h")
+            st.plotly_chart(fig, use_container_width=True)
+    except:
+        pass
 
     # Correlation
     st.subheader("Correlation Matrix")
@@ -147,22 +157,32 @@ with tab3:
         sns.heatmap(cm, annot=True, fmt='d')
         st.pyplot(fig)
     else:
-        st.info("No actual labels available")
+        st.warning("Actual labels not available for evaluation")
 
-    # SHAP
+    # ---------------- SHAP FIXED ----------------
     st.subheader("Explainable AI (SHAP)")
+
     try:
         sample = df[feature_columns].sample(min(50, len(df)))
-        explainer = shap.Explainer(model, sample)
-        shap_values = explainer(sample)
 
-        fig = shap.plots.bar(shap_values, show=False)
+        if hasattr(model, "named_steps"):
+            clf = model.named_steps["clf"]
+            explainer = shap.TreeExplainer(clf)
+            shap_values = explainer.shap_values(sample)
+        else:
+            explainer = shap.Explainer(model)
+            shap_values = explainer(sample)
+
+        fig, ax = plt.subplots()
+        shap.summary_plot(shap_values, sample, show=False)
         st.pyplot(fig)
-    except:
-        st.info("SHAP not supported")
+
+    except Exception as e:
+        st.warning(f"SHAP failed: {e}")
 
     # Business Impact
     st.subheader("Business Impact")
+
     high_risk = int((df["predicted_risk"] == 1).sum())
     total = len(df)
 
