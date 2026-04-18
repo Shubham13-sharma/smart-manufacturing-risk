@@ -1,9 +1,22 @@
+"""Data loading and normalisation utilities.
+
+Supports three input styles:
+  1. Project-native column names.
+  2. Common predictive-maintenance labels (target, failure, machine_failure …).
+  3. AI4I-style columns (Process temperature [K], Torque [Nm] …).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Union
+import io
+
 import numpy as np
 import pandas as pd
-from typing import Any
 
-
-FEATURE_COLUMNS = [
+# ── Canonical feature set ────────────────────────────────────────────────────
+FEATURE_COLUMNS: list[str] = [
     "machine_temperature",
     "bearing_temperature",
     "vibration_level",
@@ -16,176 +29,132 @@ FEATURE_COLUMNS = [
 
 TARGET_COLUMN = "downtime_risk"
 
-COLUMN_ALIASES = {
-    "machine_temperature": [
-        "machine_temperature",
-        "process_temperature",
-        "process temperature [k]",
-        "process temperature",
-        "temperature",
-        "temp",
-    ],
-    "bearing_temperature": [
-        "bearing_temperature",
-        "air_temperature",
-        "air temperature [k]",
-        "air temperature",
-        "bearing temp",
-    ],
-    "vibration_level": [
-        "vibration_level",
-        "vibration",
-        "vibration amplitude",
-        "torque [nm]",
-        "torque",
-    ],
-    "pressure": [
-        "pressure",
-        "hydraulic_pressure",
-        "process_pressure",
-        "pressure_bar",
-    ],
-    "runtime_hours": [
-        "runtime_hours",
-        "runtime",
-        "tool wear [min]",
-        "tool_wear",
-        "usage_hours",
-    ],
-    "load_percentage": [
-        "load_percentage",
-        "load",
-        "load_percent",
-        "rotational speed [rpm]",
-        "rpm",
-    ],
-    "maintenance_delay_days": [
-        "maintenance_delay_days",
-        "maintenance_delay",
-        "days_since_maintenance",
-        "maintenance_gap",
-    ],
-    "error_log_count": [
-        "error_log_count",
-        "error_count",
-        "error_logs",
-        "failure_count",
-        "fault_count",
-    ],
-    "downtime_risk": [
-        "downtime_risk",
-        "target",
-        "label",
-        "failure",
-        "machine_failure",
-        "machine failure",
-    ],
+# ── Column mapping tables ─────────────────────────────────────────────────────
+
+# AI4I / UCI predictive-maintenance style → project-native
+_AI4I_MAP: dict[str, str] = {
+    "air temperature [k]": "machine_temperature",
+    "process temperature [k]": "bearing_temperature",
+    "rotational speed [rpm]": "vibration_level",
+    "torque [nm]": "pressure",
+    "tool wear [min]": "runtime_hours",
 }
 
+# Common alternative names → project-native
+_ALIAS_MAP: dict[str, str] = {
+    # temperature
+    "temp": "machine_temperature",
+    "temperature": "machine_temperature",
+    "air_temp": "machine_temperature",
+    "machine_temp": "machine_temperature",
+    "process_temp": "bearing_temperature",
+    "bearing_temp": "bearing_temperature",
+    # vibration
+    "vibration": "vibration_level",
+    "vib": "vibration_level",
+    "rotational_speed": "vibration_level",
+    # pressure / torque
+    "torque": "pressure",
+    # runtime
+    "tool_wear": "runtime_hours",
+    "runtime": "runtime_hours",
+    "hours": "runtime_hours",
+    # load
+    "load": "load_percentage",
+    "load_pct": "load_percentage",
+    # maintenance
+    "maintenance_delay": "maintenance_delay_days",
+    "maint_delay": "maintenance_delay_days",
+    "days_since_maintenance": "maintenance_delay_days",
+    # errors
+    "error_count": "error_log_count",
+    "errors": "error_log_count",
+    "error_logs": "error_log_count",
+    "fault_count": "error_log_count",
+}
 
-def _normalize_column_name(column_name: str) -> str:
-    return (
-        column_name.strip()
-        .lower()
-        .replace("-", "_")
-        .replace("/", "_")
-        .replace("(", "")
-        .replace(")", "")
-    )
-
-
-def _find_matching_column(columns: list[str], aliases: list[str]) -> str | None:
-    normalized_aliases = {_normalize_column_name(alias) for alias in aliases}
-    for column in columns:
-        if _normalize_column_name(column) in normalized_aliases:
-            return column
-    return None
-
-
-def standardize_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
-    df = raw_df.copy()
-    standardized = pd.DataFrame(index=df.index)
-    source_columns = list(df.columns)
-
-    for feature_name in FEATURE_COLUMNS:
-        matched_column = _find_matching_column(source_columns, COLUMN_ALIASES[feature_name])
-        if matched_column is not None:
-            standardized[feature_name] = pd.to_numeric(df[matched_column], errors="coerce")
-
-    if "machine_temperature" not in standardized.columns:
-        raise ValueError("A machine or process temperature column is required.")
-
-    if "bearing_temperature" not in standardized.columns:
-        standardized["bearing_temperature"] = standardized["machine_temperature"] - 6
-
-    if "vibration_level" not in standardized.columns:
-        standardized["vibration_level"] = 2.5
-
-    if "pressure" not in standardized.columns:
-        standardized["pressure"] = 140.0
-
-    if "runtime_hours" not in standardized.columns:
-        standardized["runtime_hours"] = 1200
-
-    if "load_percentage" not in standardized.columns:
-        standardized["load_percentage"] = 70.0
-
-    if "maintenance_delay_days" not in standardized.columns:
-        standardized["maintenance_delay_days"] = 15
-
-    if "error_log_count" not in standardized.columns:
-        standardized["error_log_count"] = 0
-
-    target_column = _find_matching_column(source_columns, COLUMN_ALIASES[TARGET_COLUMN])
-    if target_column is not None:
-        standardized[TARGET_COLUMN] = pd.to_numeric(df[target_column], errors="coerce").fillna(0).astype(int)
-    elif {"twf", "hdf", "pwf", "osf", "rnf"}.issubset({_normalize_column_name(name) for name in source_columns}):
-        normalized_lookup = {_normalize_column_name(name): name for name in source_columns}
-        failure_columns = [normalized_lookup[key] for key in ["twf", "hdf", "pwf", "osf", "rnf"]]
-        standardized[TARGET_COLUMN] = df[failure_columns].max(axis=1).astype(int)
-
-    standardized = standardized[FEATURE_COLUMNS + ([TARGET_COLUMN] if TARGET_COLUMN in standardized.columns else [])]
-    return standardized
+# Target column aliases
+_TARGET_ALIASES: list[str] = [
+    "target",
+    "failure",
+    "machine_failure",
+    "label",
+    "fault",
+    "breakdown",
+    "downtime",
+]
 
 
-def load_dataset_from_csv(dataset_path: str | Any) -> pd.DataFrame:
-    raw_df = pd.read_csv(dataset_path)
-    standardized_df = standardize_dataset(raw_df)
-    return standardized_df
+def _normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of *df* with columns renamed to the project-native schema."""
+    df = df.copy()
+    rename: dict[str, str] = {}
+
+    for col in df.columns:
+        low = col.strip().lower()
+        if low in _AI4I_MAP:
+            rename[col] = _AI4I_MAP[low]
+        elif low in _ALIAS_MAP:
+            rename[col] = _ALIAS_MAP[low]
+
+    df = df.rename(columns=rename)
+
+    # Normalise the target column
+    for col in df.columns:
+        if col.strip().lower() in _TARGET_ALIASES and TARGET_COLUMN not in df.columns:
+            df = df.rename(columns={col: TARGET_COLUMN})
+            break
+
+    return df
 
 
-def generate_sample_dataset(num_rows: int = 1000, random_state: int = 42) -> pd.DataFrame:
-    rng = np.random.default_rng(random_state)
+def _fill_missing_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add any missing feature columns filled with column-median (or 0)."""
+    for col in FEATURE_COLUMNS:
+        if col not in df.columns:
+            df[col] = 0.0
+    return df
 
-    df = pd.DataFrame(
-        {
-            "machine_temperature": rng.normal(78, 10, num_rows).clip(35, 120),
-            "bearing_temperature": rng.normal(82, 12, num_rows).clip(30, 140),
-            "vibration_level": rng.normal(4.5, 1.8, num_rows).clip(0.1, 15),
-            "pressure": rng.normal(145, 22, num_rows).clip(60, 250),
-            "runtime_hours": rng.integers(50, 10000, num_rows),
-            "load_percentage": rng.normal(70, 18, num_rows).clip(5, 120),
-            "maintenance_delay_days": rng.integers(0, 180, num_rows),
-            "error_log_count": rng.poisson(2.5, num_rows).clip(0, 20),
-        }
-    )
 
-    risk_score = (
-        0.030 * (df["machine_temperature"] - 70)
-        + 0.028 * (df["bearing_temperature"] - 75)
-        + 0.240 * (df["vibration_level"] - 3)
-        + 0.012 * (df["pressure"] - 130)
-        + 0.00025 * df["runtime_hours"]
-        + 0.015 * (df["load_percentage"] - 60)
-        + 0.022 * df["maintenance_delay_days"]
-        + 0.280 * df["error_log_count"]
-        - 4.8
-    )
+def load_dataset_from_csv(
+    source: Union[str, Path, io.BytesIO, io.StringIO],
+) -> pd.DataFrame:
+    """Load a CSV from *source*, normalise columns, and return a clean DataFrame.
 
-    probability = 1 / (1 + np.exp(-risk_score))
-    df[TARGET_COLUMN] = rng.binomial(1, probability)
+    Raises
+    ------
+    ValueError
+        When the CSV cannot be parsed or contains no recognisable feature data.
+    """
+    try:
+        df = pd.read_csv(source)
+    except Exception as exc:
+        raise ValueError(f"Could not read CSV: {exc}") from exc
 
-    missing_mask = rng.random(df.shape[0]) < 0.03
-    df.loc[missing_mask, "pressure"] = np.nan
+    if df.empty:
+        raise ValueError("The uploaded CSV is empty.")
+
+    df = _normalise_columns(df)
+
+    # Check we have at least some useful columns
+    available = [c for c in FEATURE_COLUMNS if c in df.columns]
+    if not available:
+        raise ValueError(
+            "No recognisable feature columns found. "
+            "Expected columns like machine_temperature, vibration_level, "
+            "or AI4I-style columns such as 'Air temperature [K]'."
+        )
+
+    df = _fill_missing_features(df)
+
+    # Coerce feature columns to numeric, filling gaps with median
+    for col in FEATURE_COLUMNS:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+        median_val = df[col].median()
+        df[col] = df[col].fillna(median_val if not np.isnan(median_val) else 0.0)
+
+    # Coerce target if present
+    if TARGET_COLUMN in df.columns:
+        df[TARGET_COLUMN] = pd.to_numeric(df[TARGET_COLUMN], errors="coerce").fillna(0).astype(int)
 
     return df
