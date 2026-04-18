@@ -7,7 +7,13 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 from pathlib import Path
-import shap
+
+# Try import shap (don’t crash app if missing locally)
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except Exception:
+    SHAP_AVAILABLE = False
 
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="Downtime Risk Command Center", layout="wide")
@@ -22,7 +28,7 @@ feature_columns = joblib.load(FEATURES_PATH)
 
 st.title("🏭 Smart Manufacturing Downtime Risk Command Center")
 
-# ---------------- SIDEBAR ----------------
+# ---------------- SIDEBAR INPUT ----------------
 st.sidebar.header("Machine Input")
 
 machine_temperature = st.sidebar.slider("Machine Temp", 30.0, 120.0, 75.0)
@@ -46,14 +52,13 @@ input_df = pd.DataFrame([{
 }])
 
 # ---------------- PREDICTION ----------------
-prediction = model.predict(input_df[feature_columns])[0]
-probability = model.predict_proba(input_df[feature_columns])[0][1]
+pred = model.predict(input_df[feature_columns])[0]
+prob = model.predict_proba(input_df[feature_columns])[0][1]
 
-# ---------------- RECOMMENDATION ----------------
-def recommendation_logic(prob, row):
-    if prob >= 0.5:
+def recommendation_logic(p, row):
+    if p >= 0.5:
         return "🔴 Immediate Maintenance Required"
-    elif prob >= 0.3:
+    elif p >= 0.3:
         return "🟡 Schedule Maintenance within 48 hours"
     elif row["vibration_level"] > 8:
         return "⚠ Check mechanical components"
@@ -62,7 +67,7 @@ def recommendation_logic(prob, row):
     else:
         return "🟢 Normal operation"
 
-recommendation = recommendation_logic(probability, input_df.iloc[0])
+rec = recommendation_logic(prob, input_df.iloc[0])
 
 # ---------------- TABS ----------------
 tab1, tab2, tab3 = st.tabs(["📋 Overview", "🤖 Prediction", "📊 Analytics"])
@@ -80,123 +85,163 @@ with tab1:
 with tab2:
     st.subheader("Live Prediction")
 
-    if prediction == 1:
-        st.error(f"⚠ High Risk ({probability:.2%})")
+    if pred == 1:
+        st.error(f"⚠ High Risk ({prob:.2%})")
     else:
-        st.success(f"✅ Low Risk ({probability:.2%})")
+        st.success(f"✅ Low Risk ({prob:.2%})")
 
     st.subheader("Smart Recommendation Engine")
-    st.success(recommendation)
+    st.success(rec)
 
 # ================= ANALYTICS =================
 with tab3:
-
     st.subheader("Dataset Analysis")
 
+    # Load dataset (fallback to input if file missing)
     try:
         df = pd.read_csv("data/real_dataset.csv")
-    except:
+        st.caption("Using dataset: data/real_dataset.csv")
+    except Exception:
         df = input_df.copy()
+        st.caption("Dataset not found → using current input")
 
-    # Add predictions
-    if "predicted_risk" not in df.columns:
-        df["predicted_risk"] = model.predict(df[feature_columns])
-        df["risk_probability"] = model.predict_proba(df[feature_columns])[:, 1]
+    # --------- DEBUG (remove later if you want) ----------
+    with st.expander("🔧 Debug: Columns (remove later)"):
+        st.write("Model feature_columns:", feature_columns)
+        st.write("Dataset columns:", df.columns.tolist())
+
+    # --------- ALIGN DATASET TO MODEL FEATURES ----------
+    # 1) Add missing columns
+    missing_cols = [c for c in feature_columns if c not in df.columns]
+    if missing_cols:
+        st.warning(f"Missing columns added with 0: {missing_cols}")
+        for c in missing_cols:
+            df[c] = 0
+
+    # 2) Drop extra columns for model input (keep original df intact)
+    df_model = df.copy()
+
+    # 3) Ensure correct order + dtype
+    df_model = df_model[feature_columns]
+    df_model = df_model.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+    # --------- PREDICT SAFELY ----------
+    try:
+        df["predicted_risk"] = model.predict(df_model)
+        df["risk_probability"] = model.predict_proba(df_model)[:, 1]
+    except Exception as e:
+        st.error(f"Prediction failed: {e}")
+        st.stop()
 
     # KPI
     st.subheader("KPI Dashboard")
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Total Machines", len(df))
-    col2.metric("High Risk Machines", int((df["predicted_risk"] == 1).sum()))
-    col3.metric("Avg Risk %", f"{df['risk_probability'].mean()*100:.1f}%")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Machines", len(df))
+    c2.metric("High Risk Machines", int((df["predicted_risk"] == 1).sum()))
+    c3.metric("Avg Risk %", f"{df['risk_probability'].mean()*100:.1f}%")
 
     # Trend
     st.subheader("Downtime Trend")
     if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"])
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
         trend = df.groupby(df["date"].dt.date)["predicted_risk"].sum()
         st.line_chart(trend)
+    else:
+        st.info("No 'date' column for trend.")
 
     # Failure Frequency
     st.subheader("Failure Frequency")
     if "machine_id" in df.columns:
         fig = px.histogram(df, x="machine_id", color="predicted_risk")
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No 'machine_id' column for frequency.")
 
     # Feature Importance
     st.subheader("Feature Importance")
     try:
         if hasattr(model, "named_steps"):
-            clf = model.named_steps["clf"]
+            clf = model.named_steps.get("clf", model)
         else:
             clf = model
 
         if hasattr(clf, "feature_importances_"):
-            imp_df = pd.DataFrame({
+            imp = pd.DataFrame({
                 "Feature": feature_columns,
                 "Importance": clf.feature_importances_
-            }).sort_values(by="Importance", ascending=False)
+            }).sort_values("Importance", ascending=False)
 
-            fig = px.bar(imp_df, x="Importance", y="Feature", orientation="h")
+            fig = px.bar(imp, x="Importance", y="Feature", orientation="h")
             st.plotly_chart(fig, use_container_width=True)
-    except:
-        pass
+        else:
+            st.info("Model does not expose feature_importances_.")
+    except Exception as e:
+        st.warning(f"Feature importance error: {e}")
 
     # Correlation
     st.subheader("Correlation Matrix")
-    fig, ax = plt.subplots()
-    sns.heatmap(df[feature_columns].corr(), annot=True)
-    st.pyplot(fig)
+    try:
+        fig, ax = plt.subplots()
+        sns.heatmap(df[feature_columns].corr(), annot=True, ax=ax)
+        st.pyplot(fig)
+    except Exception as e:
+        st.warning(f"Correlation error: {e}")
 
     # Confusion Matrix
     st.subheader("Misclassification Analysis")
     if "actual_failure" in df.columns:
-        cm = confusion_matrix(df["actual_failure"], df["predicted_risk"])
-        fig, ax = plt.subplots()
-        sns.heatmap(cm, annot=True, fmt='d')
-        st.pyplot(fig)
+        try:
+            cm = confusion_matrix(df["actual_failure"], df["predicted_risk"])
+            fig, ax = plt.subplots()
+            sns.heatmap(cm, annot=True, fmt='d', ax=ax)
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"Confusion matrix error: {e}")
     else:
-        st.warning("Actual labels not available for evaluation")
+        st.warning("No 'actual_failure' column for evaluation.")
 
-    # ---------------- SHAP (FINAL FIXED) ----------------
+    # ---------------- SHAP (ROBUST) ----------------
     st.subheader("Explainable AI (SHAP)")
 
-    try:
-        sample = df[feature_columns].sample(min(50, len(df)))
+    if not SHAP_AVAILABLE:
+        st.warning("SHAP not installed. Add 'shap' to requirements.txt and redeploy.")
+    else:
+        try:
+            sample = df_model.sample(min(50, len(df_model)))
 
-        # Extract model from pipeline
-        if hasattr(model, "named_steps"):
-            clf = model.named_steps["clf"]
-        else:
-            clf = model
+            # Extract classifier if pipeline
+            if hasattr(model, "named_steps"):
+                clf = model.named_steps.get("clf", model)
+            else:
+                clf = model
 
-        explainer = shap.TreeExplainer(clf)
-        shap_values = explainer.shap_values(sample)
+            # Tree models → TreeExplainer; else generic Explainer
+            if hasattr(clf, "feature_importances_"):
+                explainer = shap.TreeExplainer(clf)
+                shap_vals = explainer.shap_values(sample)
+                if isinstance(shap_vals, list):
+                    shap_vals = shap_vals[1]  # binary class 1
+            else:
+                explainer = shap.Explainer(clf, sample)
+                shap_vals = explainer(sample).values
 
-        if isinstance(shap_values, list):
-            shap_values = shap_values[1]
+            fig, ax = plt.subplots(figsize=(8, 5))
+            shap.summary_plot(shap_vals, sample, show=False)
+            st.pyplot(fig)
+            st.success("SHAP loaded ✅")
 
-        fig, ax = plt.subplots(figsize=(8,5))
-        shap.summary_plot(shap_values, sample, show=False)
-        st.pyplot(fig)
-
-        st.success("SHAP Explainability Loaded ✅")
-
-    except Exception as e:
-        st.error(f"SHAP failed: {e}")
+        except Exception as e:
+            st.error(f"SHAP failed: {e}")
 
     # Business Impact
     st.subheader("Business Impact")
-
-    high_risk = int((df["predicted_risk"] == 1).sum())
+    high = int((df["predicted_risk"] == 1).sum())
     total = len(df)
-
     st.markdown(f"""
-    - Total Machines: **{total}**
-    - High Risk Machines: **{high_risk}**
-    - Estimated Downtime Reduction: **{int(high_risk * 0.2)}**
-    - Maintenance Efficiency Improved ~25%
+    - Total Machines: **{total}**  
+    - High Risk Machines: **{high}**  
+    - Estimated Downtime Reduction: **{int(high * 0.2)}**  
+    - Maintenance Efficiency Improved ~25%  
     """)
 
     # Download
