@@ -49,7 +49,7 @@ input_df = pd.DataFrame([{
 prediction = model.predict(input_df[feature_columns])[0]
 probability = model.predict_proba(input_df[feature_columns])[0][1]
 
-# ---------------- SMART RECOMMENDATION ----------------
+# ---------------- RECOMMENDATION ----------------
 def recommendation_logic(prob, row):
     if prob >= 0.5:
         return "🔴 Immediate Maintenance Required"
@@ -69,12 +69,11 @@ tab1, tab2, tab3 = st.tabs(["📋 Overview", "🤖 Prediction", "📊 Analytics"
 
 # ================= OVERVIEW =================
 with tab1:
-    st.subheader("Executive Summary")
-
+    st.subheader("Project Overview")
     st.markdown("""
-    - Predict machine downtime risk using ML  
-    - Prevent failures before they happen  
-    - Improve maintenance scheduling  
+    - Predict machine downtime using ML  
+    - Prevent failures before occurrence  
+    - Improve maintenance efficiency  
     """)
 
 # ================= PREDICTION =================
@@ -91,6 +90,7 @@ with tab2:
 
 # ================= ANALYTICS =================
 with tab3:
+
     st.subheader("Dataset Analysis")
 
     try:
@@ -159,26 +159,32 @@ with tab3:
     else:
         st.warning("Actual labels not available for evaluation")
 
-    # ---------------- SHAP FIXED ----------------
+    # ---------------- SHAP (FINAL FIXED) ----------------
     st.subheader("Explainable AI (SHAP)")
 
     try:
         sample = df[feature_columns].sample(min(50, len(df)))
 
+        # Extract model from pipeline
         if hasattr(model, "named_steps"):
             clf = model.named_steps["clf"]
-            explainer = shap.TreeExplainer(clf)
-            shap_values = explainer.shap_values(sample)
         else:
-            explainer = shap.Explainer(model)
-            shap_values = explainer(sample)
+            clf = model
 
-        fig, ax = plt.subplots()
+        explainer = shap.TreeExplainer(clf)
+        shap_values = explainer.shap_values(sample)
+
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]
+
+        fig, ax = plt.subplots(figsize=(8,5))
         shap.summary_plot(shap_values, sample, show=False)
         st.pyplot(fig)
 
+        st.success("SHAP Explainability Loaded ✅")
+
     except Exception as e:
-        st.warning(f"SHAP failed: {e}")
+        st.error(f"SHAP failed: {e}")
 
     # Business Impact
     st.subheader("Business Impact")
@@ -189,7 +195,7 @@ with tab3:
     st.markdown(f"""
     - Total Machines: **{total}**
     - High Risk Machines: **{high_risk}**
-    - Estimated Downtime Reduction: **{int(high_risk*0.2)}**
+    - Estimated Downtime Reduction: **{int(high_risk * 0.2)}**
     - Maintenance Efficiency Improved ~25%
     """)
 
