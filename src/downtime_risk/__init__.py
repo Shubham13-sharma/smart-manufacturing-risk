@@ -1,1 +1,1 @@
-"""Downtime risk classification package."""
+# Smart Manufacturing Downtime Risk package
