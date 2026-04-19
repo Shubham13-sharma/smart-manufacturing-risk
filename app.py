@@ -372,43 +372,140 @@ else:
 kpis = build_kpi_frame(scored_df)
 
 # ── SHAP helper (loaded once, cached) ────────────────────────────────────────
+# FIXES applied:
+#   1. Bare "except Exception: return False" was hiding the real crash reason.
+#      Now stores the error message so the UI can display it.
+#   2. model.named_steps["clf"] can be LogisticRegression (not a tree) —
+#      TreeExplainer only works on tree models. Added a check and falls back
+#      to shap.Explainer (the universal wrapper) for LR models.
+#   3. shap.TreeExplainer(rf_clf).shap_values() returns ndarray in shap≥0.40,
+#      no longer a list. Both cases are handled in compute_shap_values().
+#   4. The @st.cache_resource function used mutable default arg _feature_columns
+#      (a list) as cache key — wrapped in tuple() to make it hashable & stable.
+
+_SHAP_LOAD_ERROR: str = ""   # stores the real exception message for the UI
+
 @st.cache_resource(show_spinner=False)
-def get_shap_explainer(_model, _feature_columns):
-    """Build a SHAP TreeExplainer from the Random Forest pipeline."""
+def get_shap_explainer(_model, _feature_columns_tuple):
+    """
+    Build a SHAP explainer from the trained pipeline.
+    Works for both RandomForest (TreeExplainer) and
+    LogisticRegression (linear Explainer).
+    Returns (explainer, imputer, scaler, True) or (None, None, None, False).
+    """
+    global _SHAP_LOAD_ERROR
+    _SHAP_LOAD_ERROR = ""
     try:
         import shap  # type: ignore
-        rf_clf   = _model.named_steps["clf"]
-        imputer  = _model.named_steps["imputer"]
-        scaler   = _model.named_steps["scaler"]
-        background = pd.DataFrame(
-            scaler.transform(imputer.transform(
-                pd.DataFrame(np.zeros((1, len(_feature_columns))), columns=_feature_columns)
-            )),
-            columns=_feature_columns,
+    except ImportError:
+        _SHAP_LOAD_ERROR = (
+            "shap is not installed in this environment.
+"
+            "It IS in requirements.txt — most likely Streamlit Cloud has a "
+            "cached build. Fix: go to your Streamlit Cloud dashboard → "
+            "⋮ menu → Reboot app  (forces a fresh pip install)."
         )
-        explainer = shap.TreeExplainer(rf_clf)
-        return explainer, imputer, scaler, True
-    except Exception:
         return None, None, None, False
 
-explainer, shap_imputer, shap_scaler, shap_available = get_shap_explainer(model, feature_columns)
+    try:
+        feature_columns = list(_feature_columns_tuple)
+        clf     = _model.named_steps["clf"]
+        imputer = _model.named_steps["imputer"]
+        scaler  = _model.named_steps["scaler"]
+
+        # Build a 1-row zero background for Explainer
+        X_bg = pd.DataFrame(
+            scaler.transform(imputer.transform(
+                pd.DataFrame(np.zeros((1, len(feature_columns))),
+                             columns=feature_columns)
+            )),
+            columns=feature_columns,
+        )
+
+        # Choose the right explainer based on model type
+        from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+        from sklearn.tree import DecisionTreeClassifier
+        tree_types = (RandomForestClassifier, GradientBoostingClassifier, DecisionTreeClassifier)
+
+        if isinstance(clf, tree_types):
+            explainer = shap.TreeExplainer(clf)
+        else:
+            # LogisticRegression or any other model
+            explainer = shap.Explainer(clf, X_bg, feature_names=feature_columns)
+
+        return explainer, imputer, scaler, True
+
+    except Exception as exc:
+        _SHAP_LOAD_ERROR = (
+            f"SHAP is installed but failed to initialise: {type(exc).__name__}: {exc}
+
+"
+            "Common causes:
+"
+            "  • Model artifact was trained with a different scikit-learn version.
+"
+            "    Fix: retrain with  python scripts/train_model.py
+"
+            "  • Pipeline step names differ from 'clf'/'imputer'/'scaler'.
+"
+            f"    Actual steps: {list(_model.named_steps.keys())}"
+        )
+        return None, None, None, False
+
+
+# Pass feature_columns as a tuple so @st.cache_resource can hash it
+explainer, shap_imputer, shap_scaler, shap_available = get_shap_explainer(
+    model, tuple(feature_columns)
+)
+
 
 def compute_shap_values(row_df: pd.DataFrame):
-    """Return (shap_vals array, base_value, feature_names) for a single row."""
+    """
+    Return (shap_vals_array, base_value, feature_names) for a single row.
+    Handles both old list-style output and new ndarray output from shap≥0.40.
+    """
     if not shap_available:
         return None, None, None
     try:
-        X_proc = shap_scaler.transform(shap_imputer.transform(row_df[feature_columns]))
-        sv     = explainer.shap_values(X_proc)
-        # sv shape: (n_classes, n_samples, n_features) or (n_samples, n_features)
-        if isinstance(sv, list):
-            vals = sv[1][0]          # class 1
-            base = explainer.expected_value[1]
+        X_proc = pd.DataFrame(
+            shap_scaler.transform(shap_imputer.transform(row_df[feature_columns])),
+            columns=feature_columns,
+        )
+        sv = explainer.shap_values(X_proc)
+
+        # shap < 0.40  → list of arrays  [class0_array, class1_array]
+        # shap ≥ 0.40 tree → ndarray shape (n_samples, n_features, n_classes)
+        #                  or (n_samples, n_features) for binary
+        # shap.Explainer → shap.Explanation object
+        import shap as _shap  # type: ignore
+        if isinstance(sv, _shap.Explanation):
+            # Universal Explainer returns Explanation object
+            # For binary classification take the positive class
+            vals_arr = sv.values
+            if vals_arr.ndim == 3:
+                vals = vals_arr[0, :, 1]
+            else:
+                vals = vals_arr[0]
+            base = float(sv.base_values[0]) if hasattr(sv, "base_values") else 0.0
+        elif isinstance(sv, list):
+            # Old-style list: [class0, class1]
+            vals = sv[1][0]
+            ev   = explainer.expected_value
+            base = float(ev[1]) if hasattr(ev, "__len__") else float(ev)
+        elif isinstance(sv, np.ndarray):
+            if sv.ndim == 3:
+                # (n_samples, n_features, n_classes) — take class 1
+                vals = sv[0, :, 1]
+            else:
+                vals = sv[0]
+            ev   = explainer.expected_value
+            base = float(ev[1]) if hasattr(ev, "__len__") else float(ev)
         else:
-            vals = sv[0]
-            base = explainer.expected_value
-        return vals, float(base), feature_columns
-    except Exception:
+            return None, None, None
+
+        return vals, base, feature_columns
+
+    except Exception as exc:
         return None, None, None
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -601,12 +698,45 @@ with tab_shap:
     """)
 
     if not shap_available:
-        st.warning("""
-        **SHAP library not installed.**
-        Add `shap` to your `requirements.txt`, push to GitHub, and redeploy.
-        The feature importance chart in Plant Analytics tab shows the global view in the meantime.
+        # Show the REAL reason SHAP failed — not just "not installed"
+        st.error("⚠️ SHAP explainer could not be loaded.")
+        if _SHAP_LOAD_ERROR:
+            st.markdown(f"""
+**Reason:**
+```
+{_SHAP_LOAD_ERROR}
+```
+            """)
+        # Step-by-step fix guide
+        st.markdown("""
+---
+### 🔧 How to fix this
+
+**If the error says "not installed" or "no module named shap":**
+
+> Streamlit Cloud has a **cached build** — it did not reinstall packages.
+
+1. Go to [share.streamlit.io](https://share.streamlit.io)
+2. Find your app → click the **⋮ menu** (top right)
+3. Click **Reboot app** — this forces a full `pip install -r requirements.txt`
+4. Wait ~60 seconds for the app to restart
+
+**If the error says "failed to initialise" (SHAP is installed but crashes):**
+
+> Your saved model artifact may be from an older scikit-learn version.
+
+1. Run this locally to retrain:
+```bash
+python scripts/train_model.py --dataset data/manufacturing_downtime_sample.csv
+```
+2. Commit the new `artifacts/best_model.joblib` to GitHub
+3. Streamlit Cloud will redeploy automatically
+
+**If nothing works — check your requirements.txt has:**
+```
+shap==0.46.0
+```
         """)
-        st.code("# Add this line to requirements.txt:\nshap==0.46.0")
     else:
         shap_col1, shap_col2 = st.columns([1, 1])
 
