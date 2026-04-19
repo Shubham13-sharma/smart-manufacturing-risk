@@ -199,6 +199,28 @@ h2,h3,p,label,.stCaption,.stMarkdown,.stText{color:#102a43!important;}
 [data-testid="stSidebar"] [data-baseweb="input"] input,
 [data-testid="stSidebar"] [data-baseweb="base-input"] input{
     color:#fff!important;background:#0f172a!important;border:1px solid #334155!important;}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] section{
+    background:#111827!important;
+    border:1px dashed #64748b!important;
+    border-radius:14px!important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] section *{
+    color:#f8fafc!important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] small{
+    color:#cbd5e1!important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] button{
+    background:#edae49!important;
+    color:#111827!important;
+    border:0!important;
+    border-radius:10px!important;
+    font-weight:800!important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] svg{
+    color:#f8fafc!important;
+    fill:#f8fafc!important;
+}
 </style>
 """, unsafe_allow_html=True)
 
