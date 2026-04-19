@@ -399,11 +399,10 @@ def get_shap_explainer(_model, _feature_columns_tuple):
         import shap  # type: ignore
     except ImportError:
         _SHAP_LOAD_ERROR = (
-            "shap is not installed in this environment.
-"
-            "It IS in requirements.txt — most likely Streamlit Cloud has a "
-            "cached build. Fix: go to your Streamlit Cloud dashboard → "
-            "⋮ menu → Reboot app  (forces a fresh pip install)."
+            "shap is not installed in this environment. "
+            "It IS in requirements.txt -- most likely Streamlit Cloud has a "
+            "cached build. Fix: go to your Streamlit Cloud dashboard -> "
+            "three-dot menu -> Reboot app (forces a fresh pip install)."
         )
         return None, None, None, False
 
@@ -437,18 +436,12 @@ def get_shap_explainer(_model, _feature_columns_tuple):
 
     except Exception as exc:
         _SHAP_LOAD_ERROR = (
-            f"SHAP is installed but failed to initialise: {type(exc).__name__}: {exc}
-
-"
-            "Common causes:
-"
-            "  • Model artifact was trained with a different scikit-learn version.
-"
-            "    Fix: retrain with  python scripts/train_model.py
-"
-            "  • Pipeline step names differ from 'clf'/'imputer'/'scaler'.
-"
-            f"    Actual steps: {list(_model.named_steps.keys())}"
+            f"SHAP installed but failed to initialise: {type(exc).__name__}: {exc}. "
+            "Common causes: "
+            "(1) Model artifact trained with different scikit-learn version "
+            "-- fix: retrain with python scripts/train_model.py. "
+            "(2) Pipeline step names differ from clf/imputer/scaler. "
+            f"Actual steps: {list(_model.named_steps.keys())}"
         )
         return None, None, None, False
 
