@@ -5,6 +5,7 @@ venv/
 *.pyo
 *.pyd
 .DS_Store
+.streamlit/secrets.toml
 data/*
 !data/real_dataset.csv
 !artifacts/
