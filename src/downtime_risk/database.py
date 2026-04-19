@@ -80,6 +80,16 @@ def _ensure_column(conn, table_name: str, column_name: str, definition: str) -> 
             cur.close()
 
 
+def _modify_column(conn, table_name: str, column_name: str, definition: str) -> None:
+    cols = _columns(conn, table_name)
+    if column_name in cols:
+        cur = conn.cursor()
+        try:
+            cur.execute(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {definition}")
+        finally:
+            cur.close()
+
+
 def _run_id_is_integer(cols: dict[str, str]) -> bool:
     return "run_id" in cols and any(token in cols["run_id"] for token in ["int", "bigint", "smallint"])
 
@@ -152,6 +162,8 @@ def initialize_tables(cfg: DatabaseConfig) -> None:
         _ensure_column(conn, "machine_predictions", "risk_probability", "FLOAT")
         _ensure_column(conn, "machine_predictions", "recommendation", "TEXT")
         _ensure_column(conn, "machine_predictions", "created_at", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP")
+        _ensure_column(conn, "machine_predictions", "saved_at", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP")
+        _modify_column(conn, "machine_predictions", "saved_at", "DATETIME NULL DEFAULT CURRENT_TIMESTAMP")
         conn.commit()
     finally:
         conn.close()
