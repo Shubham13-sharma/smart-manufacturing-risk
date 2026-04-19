@@ -430,18 +430,30 @@ def get_shap_explainer(_model, _feature_columns_tuple):
 
     try:
         feature_columns = list(_feature_columns_tuple)
-        clf     = _model.named_steps["clf"]
-        imputer = _model.named_steps["imputer"]
-        scaler  = _model.named_steps["scaler"]
+        steps = _model.named_steps
+        clf = steps.get("clf") or steps.get("classifier")
+        if clf is None:
+            raise KeyError(f"No classifier step found. Actual steps: {list(steps.keys())}")
+
+        if "imputer" in steps and "scaler" in steps:
+            transform_mode = "direct"
+            transformer = (steps["imputer"], steps["scaler"])
+        elif "preprocessor" in steps:
+            transform_mode = "preprocessor"
+            transformer = steps["preprocessor"]
+        else:
+            raise KeyError(f"No preprocessing steps found. Actual steps: {list(steps.keys())}")
 
         # Build a 1-row zero background for Explainer
-        X_bg = pd.DataFrame(
-            scaler.transform(imputer.transform(
-                pd.DataFrame(np.zeros((1, len(feature_columns))),
-                             columns=feature_columns)
-            )),
-            columns=feature_columns,
-        )
+        zero_df = pd.DataFrame(np.zeros((1, len(feature_columns))), columns=feature_columns)
+        if transform_mode == "direct":
+            imputer, scaler = transformer
+            X_bg_values = scaler.transform(imputer.transform(zero_df))
+        else:
+            X_bg_values = transformer.transform(zero_df)
+        if hasattr(X_bg_values, "toarray"):
+            X_bg_values = X_bg_values.toarray()
+        X_bg = pd.DataFrame(X_bg_values, columns=feature_columns)
 
         # Choose the right explainer based on model type
         from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -454,7 +466,7 @@ def get_shap_explainer(_model, _feature_columns_tuple):
             # LogisticRegression or any other model
             explainer = shap.Explainer(clf, X_bg, feature_names=feature_columns)
 
-        return explainer, imputer, scaler, True
+        return explainer, transformer, transform_mode, True
 
     except Exception as exc:
         _SHAP_LOAD_ERROR = (
@@ -462,7 +474,7 @@ def get_shap_explainer(_model, _feature_columns_tuple):
             "Common causes: "
             "(1) Model artifact trained with different scikit-learn version "
             "-- fix: retrain with python scripts/train_model.py. "
-            "(2) Pipeline step names differ from clf/imputer/scaler. "
+            "(2) Pipeline step names differ from clf/imputer/scaler or preprocessor/classifier. "
             f"Actual steps: {list(_model.named_steps.keys())}"
         )
         return None, None, None, False
@@ -482,10 +494,16 @@ def compute_shap_values(row_df: pd.DataFrame):
     if not shap_available:
         return None, None, None
     try:
-        X_proc = pd.DataFrame(
-            shap_scaler.transform(shap_imputer.transform(row_df[feature_columns])),
-            columns=feature_columns,
-        )
+        if shap_scaler == "direct":
+            imputer, scaler = shap_imputer
+            X_proc_values = scaler.transform(imputer.transform(row_df[feature_columns]))
+        elif shap_scaler == "preprocessor":
+            X_proc_values = shap_imputer.transform(row_df[feature_columns])
+        else:
+            return None, None, None
+        if hasattr(X_proc_values, "toarray"):
+            X_proc_values = X_proc_values.toarray()
+        X_proc = pd.DataFrame(X_proc_values, columns=feature_columns)
         sv = explainer.shap_values(X_proc)
 
         # shap < 0.40  → list of arrays  [class0_array, class1_array]
