@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from io import StringIO
 
 
 FEATURE_COLUMNS = [
@@ -177,8 +178,50 @@ def standardize_dataset_with_mapping(
     return result.reset_index(drop=True)
 
 
+def read_flexible_csv(dataset_path: str | Path | Any) -> pd.DataFrame:
+    """Read CSV files that may contain preamble text, odd separators, or bad lines."""
+    try:
+        return pd.read_csv(dataset_path)
+    except Exception:
+        pass
+
+    if hasattr(dataset_path, "seek"):
+        dataset_path.seek(0)
+    raw_text = dataset_path.read() if hasattr(dataset_path, "read") else Path(dataset_path).read_text(encoding="utf-8", errors="ignore")
+    if isinstance(raw_text, bytes):
+        raw_text = raw_text.decode("utf-8", errors="ignore")
+
+    lines = raw_text.splitlines()
+    header_index = 0
+    best_score = -1
+    for idx, line in enumerate(lines[:80]):
+        comma_count = line.count(",")
+        semicolon_count = line.count(";")
+        tab_count = line.count("\t")
+        score = max(comma_count, semicolon_count, tab_count)
+        if score > best_score:
+            best_score = score
+            header_index = idx
+
+    cleaned_text = "\n".join(lines[header_index:])
+    for sep in [None, ",", ";", "\t", "|"]:
+        try:
+            frame = pd.read_csv(
+                StringIO(cleaned_text),
+                sep=sep,
+                engine="python",
+                on_bad_lines="skip",
+            )
+            if not frame.empty and len(frame.columns) > 1:
+                return frame
+        except Exception:
+            continue
+
+    raise ValueError("Could not read this dataset. Please upload a valid CSV file.")
+
+
 def load_dataset_from_csv(dataset_path: str | Path | Any) -> pd.DataFrame:
-    raw_df = pd.read_csv(dataset_path)
+    raw_df = read_flexible_csv(dataset_path)
     return standardize_dataset(raw_df)
 
 
@@ -219,4 +262,3 @@ def generate_sample_dataset(num_rows: int = 1200, random_state: int = 42) -> pd.
             "downtime_risk": downtime_risk,
         }
     )
-
