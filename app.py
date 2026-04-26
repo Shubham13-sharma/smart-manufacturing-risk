@@ -843,6 +843,12 @@ This helps when your dataset column names are different from the project CSV.
                 st.caption("If your CSV does not have a feature, leave it as 'Use default value'. The app will fill a safe default.")
 
                 source_options = ["Use default value"] + list(raw_custom_df.columns)
+                machine_label_choice = st.selectbox(
+                    "Machine label column",
+                    ["Auto detect"] + list(raw_custom_df.columns),
+                    index=0,
+                    key=f"machine_label_{file_index}_{dataset_name}",
+                )
                 mapping: dict[str, str | None] = {}
                 map_cols = st.columns(2)
                 for feature_index, feature in enumerate(FEATURE_COLUMNS):
@@ -874,6 +880,7 @@ This helps when your dataset column names are different from the project CSV.
                             raw_custom_df,
                             mapping,
                             None if target_choice == "No actual target" else target_choice,
+                            None if machine_label_choice == "Auto detect" else machine_label_choice,
                         )
                         scored_custom_df = add_prediction_scores(fitted_df, model)
                         st.session_state[f"scored_dataset_{file_index}_{dataset_name}"] = scored_custom_df
@@ -906,7 +913,7 @@ This helps when your dataset column names are different from the project CSV.
                         st.success(f"Accuracy against selected target column: {float((actual == pred).mean()):.1%}")
 
                     st.plotly_chart(risk_distribution_chart(scored_custom_df), use_container_width=True)
-                    preview_cols = FEATURE_COLUMNS + ["risk_probability", "predicted_risk", "recommendation"]
+                    preview_cols = ["machine_label"] + FEATURE_COLUMNS + ["risk_probability", "predicted_risk", "recommendation"]
                     st.dataframe(scored_custom_df[preview_cols].head(25), use_container_width=True)
 
                     safe_name = Path(dataset_name).stem.replace(" ", "_")

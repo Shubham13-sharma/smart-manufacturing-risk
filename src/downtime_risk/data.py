@@ -104,6 +104,21 @@ TARGET_ALIASES = [
     "label",
 ]
 
+MACHINE_LABEL_ALIASES = [
+    "machine_label",
+    "machine label",
+    "machine id",
+    "machine_id",
+    "machine",
+    "product id",
+    "product_id",
+    "udi",
+    "asset_id",
+    "asset id",
+    "equipment_id",
+    "equipment id",
+]
+
 
 def _normalise_name(name: str) -> str:
     return str(name).strip().lower().replace("_", " ")
@@ -139,6 +154,12 @@ def standardize_dataset(raw_df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Dataset is empty.")
 
     result = pd.DataFrame(index=raw_df.index)
+    machine_label_col = _find_column(raw_df, MACHINE_LABEL_ALIASES)
+    if machine_label_col:
+        result["machine_label"] = raw_df[machine_label_col].astype(str).fillna("").replace("", pd.NA)
+    else:
+        result["machine_label"] = [f"MCH-{i+1:04d}" for i in range(len(raw_df))]
+
     for feature in FEATURE_COLUMNS:
         source_col = _find_column(raw_df, COLUMN_ALIASES[feature])
         result[feature] = _numeric_series(raw_df, source_col, feature)
@@ -160,12 +181,22 @@ def standardize_dataset_with_mapping(
     raw_df: pd.DataFrame,
     column_mapping: dict[str, str | None],
     target_column: str | None = None,
+    machine_label_column: str | None = None,
 ) -> pd.DataFrame:
     """Create model-ready data from user-selected CSV column mappings."""
     if raw_df.empty:
         raise ValueError("Dataset is empty.")
 
     result = pd.DataFrame(index=raw_df.index)
+    if machine_label_column and machine_label_column in raw_df.columns:
+        result["machine_label"] = raw_df[machine_label_column].astype(str).fillna("").replace("", pd.NA)
+    else:
+        guessed_label_col = _find_column(raw_df, MACHINE_LABEL_ALIASES)
+        if guessed_label_col:
+            result["machine_label"] = raw_df[guessed_label_col].astype(str).fillna("").replace("", pd.NA)
+        else:
+            result["machine_label"] = [f"MCH-{i+1:04d}" for i in range(len(raw_df))]
+
     for feature in FEATURE_COLUMNS:
         mapped_col = column_mapping.get(feature)
         result[feature] = _numeric_series(raw_df, mapped_col, feature)
