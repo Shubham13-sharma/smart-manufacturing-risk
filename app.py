@@ -9,7 +9,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.downtime_risk.data import FEATURE_COLUMNS, load_dataset_from_csv
+from src.downtime_risk.data import (
+    FEATURE_COLUMNS,
+    load_dataset_from_csv,
+    standardize_dataset_with_mapping,
+)
 from src.downtime_risk.database import (
     DatabaseConfig,
     fetch_recent_predictions,
@@ -221,6 +225,21 @@ h2,h3,p,label,.stCaption,.stMarkdown,.stText{color:#102a43!important;}
     color:#f8fafc!important;
     fill:#f8fafc!important;
 }
+[data-testid="stFileUploader"] section{
+    background:#111827!important;
+    border:1px dashed #64748b!important;
+    border-radius:14px!important;
+}
+[data-testid="stFileUploader"] section *{
+    color:#f8fafc!important;
+}
+[data-testid="stFileUploader"] button{
+    background:#edae49!important;
+    color:#111827!important;
+    border:0!important;
+    border-radius:10px!important;
+    font-weight:800!important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -370,6 +389,39 @@ probability      = st.session_state["latest_probability"]
 display_input_df = st.session_state["latest_input_df"]
 recommendation   = ("Immediate maintenance inspection recommended"
                     if prediction == 1 else "Continue monitoring under normal schedule")
+
+
+def build_ai_recommendation(row_df: pd.DataFrame, probability_score: float, predicted_label: int) -> str:
+    row = row_df.iloc[0]
+    top_drivers = []
+    if float(row["bearing_temperature"]) >= 95:
+        top_drivers.append("bearing temperature is critically high")
+    if float(row["machine_temperature"]) >= 90:
+        top_drivers.append("machine temperature is elevated")
+    if float(row["vibration_level"]) >= 7:
+        top_drivers.append("vibration is above the safe zone")
+    if float(row["load_percentage"]) >= 85:
+        top_drivers.append("load percentage is overloaded")
+    if float(row["maintenance_delay_days"]) >= 30:
+        top_drivers.append("maintenance has been delayed too long")
+    if float(row["error_log_count"]) >= 4:
+        top_drivers.append("error logs are building up")
+    if float(row["runtime_hours"]) >= 7000:
+        top_drivers.append("runtime hours are very high")
+
+    if not top_drivers:
+        top_drivers.append("all sensors look close to the healthy operating range")
+
+    action_line = (
+        "Recommended action: inspect this machine immediately and plan preventive maintenance before the next production cycle."
+        if predicted_label == 1
+        else "Recommended action: continue production, but keep this machine under routine monitoring."
+    )
+    driver_text = "; ".join(top_drivers[:3])
+    return (
+        f"AI support summary: the model predicts a downtime risk probability of {probability_score:.1%}. "
+        f"The strongest visible signals are that {driver_text}. {action_line}"
+    )
 
 # ── Dataset loading ───────────────────────────────────────────────────────────
 dataset_df   = None
@@ -631,6 +683,9 @@ with tab_predict:
         else:
             st.info("🟢 **NORMAL CYCLE** — Continue operation, keep monitoring.")
 
+        st.markdown("**AI support insight**")
+        st.info(build_ai_recommendation(display_input_df, probability, prediction))
+
         gauge = px.bar(
             pd.DataFrame({"Machine": [machine_label], "Probability": [probability]}),
             x="Probability", y="Machine", orientation="h", text_auto=".0%",
@@ -695,7 +750,7 @@ with tab_analytics:
     # Feature importance
     st.subheader("Feature Importance — What Drives Downtime Risk?")
     try:
-        rf_clf = model.named_steps.get("clf")
+        rf_clf = model.named_steps.get("clf") or model.named_steps.get("classifier")
         if hasattr(rf_clf, "feature_importances_"):
             imp_df = (pd.DataFrame({"Feature": feature_columns,
                                     "Importance (%)": (rf_clf.feature_importances_ * 100).round(2)})
@@ -717,6 +772,150 @@ with tab_analytics:
     disp_cols = FEATURE_COLUMNS + [c for c in ["risk_probability","predicted_risk"] if c in scored_df.columns]
     st.dataframe(scored_df[disp_cols].head(25), use_container_width=True)
     csv_bytes = scored_df[disp_cols].to_csv(index=False).encode()
+    st.download_button("Download Full Scored CSV", csv_bytes, "scored_predictions.csv", "text/csv")
+    st.markdown("---")
+    st.subheader("Multi Dataset Lab")
+    st.markdown(
+        """
+Upload many CSV files, map each file's columns to the 8 required model features, and score every dataset.
+This helps when your dataset column names are different from the project CSV.
+        """
+    )
+    st.code(", ".join(FEATURE_COLUMNS), language="text")
+
+    multi_uploads = st.file_uploader(
+        "Upload one or more CSV datasets for comparison",
+        type=["csv"],
+        accept_multiple_files=True,
+        key="multi_dataset_lab_uploads",
+    )
+
+    comparison_rows = []
+    if not multi_uploads:
+        st.info("Upload 2-3 CSV files here. After upload, choose which column matches each model feature.")
+    else:
+        for file_index, uploaded_dataset in enumerate(multi_uploads, start=1):
+            with st.expander(f"Dataset {file_index}: {uploaded_dataset.name}", expanded=file_index == 1):
+                try:
+                    raw_custom_df = pd.read_csv(uploaded_dataset)
+                except Exception as exc:
+                    st.error(f"Could not read this CSV: {exc}")
+                    continue
+
+                st.caption(f"Raw file shape: {raw_custom_df.shape[0]:,} rows x {raw_custom_df.shape[1]:,} columns")
+                st.dataframe(raw_custom_df.head(10), use_container_width=True)
+                st.markdown("**Step 1: Fit your CSV columns to model features**")
+                st.caption("If your CSV does not have a feature, leave it as 'Use default value'. The app will fill a safe default.")
+
+                source_options = ["Use default value"] + list(raw_custom_df.columns)
+                mapping: dict[str, str | None] = {}
+                map_cols = st.columns(2)
+                for feature_index, feature in enumerate(FEATURE_COLUMNS):
+                    guessed_index = 0
+                    simple_feature = feature.replace("_", " ").lower()
+                    for option_index, option in enumerate(source_options):
+                        simple_option = str(option).replace("_", " ").lower()
+                        if simple_option == simple_feature or simple_feature in simple_option:
+                            guessed_index = option_index
+                            break
+                    with map_cols[feature_index % 2]:
+                        selected = st.selectbox(
+                            feature,
+                            source_options,
+                            index=guessed_index,
+                            key=f"mapping_{file_index}_{uploaded_dataset.name}_{feature}",
+                        )
+                    mapping[feature] = None if selected == "Use default value" else selected
+
+                target_choice = st.selectbox(
+                    "Optional: actual target/failure column for accuracy check",
+                    ["No actual target"] + list(raw_custom_df.columns),
+                    key=f"target_{file_index}_{uploaded_dataset.name}",
+                )
+
+                if st.button("Run This Dataset", key=f"run_dataset_{file_index}_{uploaded_dataset.name}", use_container_width=True):
+                    try:
+                        fitted_df = standardize_dataset_with_mapping(
+                            raw_custom_df,
+                            mapping,
+                            None if target_choice == "No actual target" else target_choice,
+                        )
+                        scored_custom_df = add_prediction_scores(fitted_df, model)
+                        st.session_state[f"scored_dataset_{file_index}_{uploaded_dataset.name}"] = scored_custom_df
+                    except Exception as exc:
+                        st.error(f"Prediction failed: {exc}")
+
+                scored_key = f"scored_dataset_{file_index}_{uploaded_dataset.name}"
+                scored_custom_df = st.session_state.get(scored_key)
+                if scored_custom_df is not None:
+                    dataset_kpis = build_kpi_frame(scored_custom_df)
+                    comparison_rows.append(
+                        {
+                            "Dataset": uploaded_dataset.name,
+                            "Rows": int(dataset_kpis["total_assets"]),
+                            "High Risk": int(dataset_kpis["high_risk_assets"]),
+                            "Average Risk": f"{dataset_kpis['avg_risk']:.1f}%",
+                            "Stable": int(dataset_kpis["monitored_stable"]),
+                        }
+                    )
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Rows Scored", f"{int(dataset_kpis['total_assets']):,}")
+                    m2.metric("High Risk", f"{int(dataset_kpis['high_risk_assets']):,}")
+                    m3.metric("Average Risk", f"{dataset_kpis['avg_risk']:.1f}%")
+                    m4.metric("Stable", f"{int(dataset_kpis['monitored_stable']):,}")
+
+                    if target_choice != "No actual target":
+                        actual = scored_custom_df["downtime_risk"].astype(int)
+                        pred = scored_custom_df["predicted_risk"].astype(int)
+                        st.success(f"Accuracy against selected target column: {float((actual == pred).mean()):.1%}")
+
+                    st.plotly_chart(risk_distribution_chart(scored_custom_df), use_container_width=True)
+                    preview_cols = FEATURE_COLUMNS + ["risk_probability", "predicted_risk", "recommendation"]
+                    st.dataframe(scored_custom_df[preview_cols].head(25), use_container_width=True)
+
+                    safe_name = Path(uploaded_dataset.name).stem.replace(" ", "_")
+                    st.download_button(
+                        "Download scored CSV",
+                        scored_custom_df[preview_cols].to_csv(index=False).encode("utf-8"),
+                        f"{safe_name}_scored_predictions.csv",
+                        "text/csv",
+                        key=f"download_{file_index}_{uploaded_dataset.name}",
+                    )
+
+                    if st.button("Save This Dataset Batch to MySQL", key=f"save_dataset_{file_index}_{uploaded_dataset.name}", use_container_width=True):
+                        if not all([db_host, db_user, db_password, db_name]):
+                            st.error("Configure MySQL in the sidebar first.")
+                        else:
+                            try:
+                                run_id = save_batch_predictions(db_config, scored_custom_df, uploaded_dataset.name)
+                                st.success(f"Saved to MySQL. run_id: {run_id[:8]}...")
+                            except Exception as exc:
+                                st.error(f"Could not save dataset batch: {exc}")
+
+        if comparison_rows:
+            st.subheader("Dataset Comparison")
+            comparison_df = pd.DataFrame(comparison_rows)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+            chart_df = comparison_df.copy()
+            chart_df["Average Risk Numeric"] = chart_df["Average Risk"].str.rstrip("%").astype(float)
+            fig_compare = px.bar(
+                chart_df,
+                x="Dataset",
+                y="Average Risk Numeric",
+                color="High Risk",
+                title="Average Risk by Dataset",
+                color_continuous_scale=["#2a9d8f", "#edae49", "#d1495b"],
+            )
+            fig_compare.update_layout(template="plotly_white", yaxis_title="Average Risk (%)", coloraxis_showscale=False)
+            st.plotly_chart(fig_compare, use_container_width=True)
+            riskiest_dataset = chart_df.sort_values("Average Risk Numeric", ascending=False).iloc[0]
+            st.info(
+                "AI dataset advisor: "
+                f"`{riskiest_dataset['Dataset']}` currently looks like the riskiest uploaded dataset "
+                f"with an average risk of {riskiest_dataset['Average Risk Numeric']:.1f}% "
+                f"and {riskiest_dataset['High Risk']} high-risk records."
+            )
     st.download_button("⬇️ Download Full Scored CSV", csv_bytes, "scored_predictions.csv", "text/csv")
 
 # ════════════════════════════════════════════════════════
@@ -818,10 +1017,24 @@ shap==0.46.0
                 try:
                     sample_size = min(200, len(dataset_df))
                     X_sample = dataset_df[feature_columns].sample(sample_size, random_state=42)
-                    X_proc   = shap_scaler.transform(shap_imputer.transform(X_sample))
-                    sv_all   = explainer.shap_values(X_proc)
+                    if shap_scaler == "direct":
+                        imputer, scaler = shap_imputer
+                        X_proc_values = scaler.transform(imputer.transform(X_sample))
+                    elif shap_scaler == "preprocessor":
+                        X_proc_values = shap_imputer.transform(X_sample)
+                    else:
+                        raise ValueError("Unsupported SHAP preprocessing mode.")
+                    if hasattr(X_proc_values, "toarray"):
+                        X_proc_values = X_proc_values.toarray()
+                    X_proc = pd.DataFrame(X_proc_values, columns=feature_columns)
+                    sv_all = explainer.shap_values(X_proc)
                     if isinstance(sv_all, list):
                         sv_class1 = sv_all[1]
+                    elif isinstance(sv_all, np.ndarray) and sv_all.ndim == 3:
+                        sv_class1 = sv_all[:, :, 1]
+                    elif hasattr(sv_all, "values"):
+                        sv_values = sv_all.values
+                        sv_class1 = sv_values[:, :, 1] if getattr(sv_values, "ndim", 0) == 3 else sv_values
                     else:
                         sv_class1 = sv_all
 
@@ -928,7 +1141,7 @@ with tab_workflow:
             if i == 11:
                 st.markdown("**📊 Live Feature Importances + SHAP (see SHAP tab for full details)**")
                 try:
-                    rf_clf2 = model.named_steps.get("clf")
+                    rf_clf2 = model.named_steps.get("clf") or model.named_steps.get("classifier")
                     if hasattr(rf_clf2, "feature_importances_"):
                         imp2 = pd.DataFrame({
                             "Feature":        feature_columns,

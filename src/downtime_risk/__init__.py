@@ -1,1 +1,2 @@
-# Smart Manufacturing Downtime Risk package
+"""Smart manufacturing downtime risk package."""
+
