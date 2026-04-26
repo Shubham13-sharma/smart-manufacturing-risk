@@ -12,6 +12,7 @@ import streamlit as st
 from src.downtime_risk.data import (
     FEATURE_COLUMNS,
     load_dataset_from_csv,
+    read_flexible_csv,
     standardize_dataset_with_mapping,
 )
 from src.downtime_risk.database import (
@@ -38,6 +39,11 @@ SAMPLE_DATASET_PATH  = Path("data") / "manufacturing_downtime_sample.csv"
 MODEL_PATH           = ARTIFACT_DIR / "best_model.joblib"
 FEATURES_PATH        = ARTIFACT_DIR / "feature_columns.joblib"
 METRICS_PATH         = ARTIFACT_DIR / "metrics.json"
+PROJECT_DATASET_PATHS = [
+    Path("data") / "real_dataset.csv",
+    Path("data") / "aps_scania" / "aps_failure_training_set.csv",
+    Path("data") / "aps_scania" / "aps_failure_test_set.csv",
+]
 
 WORKFLOW_STEPS = [
     "Define downtime prediction objective",
@@ -783,6 +789,17 @@ This helps when your dataset column names are different from the project CSV.
     )
     st.code(", ".join(FEATURE_COLUMNS), language="text")
 
+    if "load_project_datasets" not in st.session_state:
+        st.session_state["load_project_datasets"] = False
+
+    load_col, clear_col = st.columns(2)
+    with load_col:
+        if st.button("Load Project Datasets", use_container_width=True, key="load_project_datasets_button"):
+            st.session_state["load_project_datasets"] = True
+    with clear_col:
+        if st.button("Clear Project Datasets", use_container_width=True, key="clear_project_datasets_button"):
+            st.session_state["load_project_datasets"] = False
+
     multi_uploads = st.file_uploader(
         "Upload one or more CSV datasets for comparison",
         type=["csv"],
@@ -790,14 +807,32 @@ This helps when your dataset column names are different from the project CSV.
         key="multi_dataset_lab_uploads",
     )
 
+    dataset_sources = []
+    if st.session_state.get("load_project_datasets"):
+        available_project_datasets = [path for path in PROJECT_DATASET_PATHS if path.exists()]
+        if available_project_datasets:
+            st.success(
+                "Project datasets loaded: "
+                + ", ".join(path.name for path in available_project_datasets)
+            )
+            for project_path in available_project_datasets:
+                dataset_sources.append({"name": project_path.name, "source": project_path})
+        else:
+            st.warning("No built-in project datasets were found in the data folder.")
+
+    for uploaded_dataset in multi_uploads or []:
+        dataset_sources.append({"name": uploaded_dataset.name, "source": uploaded_dataset})
+
     comparison_rows = []
-    if not multi_uploads:
-        st.info("Upload 2-3 CSV files here. After upload, choose which column matches each model feature.")
+    if not dataset_sources:
+        st.info("Click `Load Project Datasets` or upload 2-3 CSV files here. Then choose which columns match each model feature.")
     else:
-        for file_index, uploaded_dataset in enumerate(multi_uploads, start=1):
-            with st.expander(f"Dataset {file_index}: {uploaded_dataset.name}", expanded=file_index == 1):
+        for file_index, dataset_item in enumerate(dataset_sources, start=1):
+            dataset_name = dataset_item["name"]
+            dataset_source = dataset_item["source"]
+            with st.expander(f"Dataset {file_index}: {dataset_name}", expanded=file_index == 1):
                 try:
-                    raw_custom_df = pd.read_csv(uploaded_dataset)
+                    raw_custom_df = read_flexible_csv(dataset_source)
                 except Exception as exc:
                     st.error(f"Could not read this CSV: {exc}")
                     continue
@@ -823,17 +858,17 @@ This helps when your dataset column names are different from the project CSV.
                             feature,
                             source_options,
                             index=guessed_index,
-                            key=f"mapping_{file_index}_{uploaded_dataset.name}_{feature}",
+                            key=f"mapping_{file_index}_{dataset_name}_{feature}",
                         )
                     mapping[feature] = None if selected == "Use default value" else selected
 
                 target_choice = st.selectbox(
                     "Optional: actual target/failure column for accuracy check",
                     ["No actual target"] + list(raw_custom_df.columns),
-                    key=f"target_{file_index}_{uploaded_dataset.name}",
+                    key=f"target_{file_index}_{dataset_name}",
                 )
 
-                if st.button("Run This Dataset", key=f"run_dataset_{file_index}_{uploaded_dataset.name}", use_container_width=True):
+                if st.button("Run This Dataset", key=f"run_dataset_{file_index}_{dataset_name}", use_container_width=True):
                     try:
                         fitted_df = standardize_dataset_with_mapping(
                             raw_custom_df,
@@ -841,17 +876,17 @@ This helps when your dataset column names are different from the project CSV.
                             None if target_choice == "No actual target" else target_choice,
                         )
                         scored_custom_df = add_prediction_scores(fitted_df, model)
-                        st.session_state[f"scored_dataset_{file_index}_{uploaded_dataset.name}"] = scored_custom_df
+                        st.session_state[f"scored_dataset_{file_index}_{dataset_name}"] = scored_custom_df
                     except Exception as exc:
                         st.error(f"Prediction failed: {exc}")
 
-                scored_key = f"scored_dataset_{file_index}_{uploaded_dataset.name}"
+                scored_key = f"scored_dataset_{file_index}_{dataset_name}"
                 scored_custom_df = st.session_state.get(scored_key)
                 if scored_custom_df is not None:
                     dataset_kpis = build_kpi_frame(scored_custom_df)
                     comparison_rows.append(
                         {
-                            "Dataset": uploaded_dataset.name,
+                            "Dataset": dataset_name,
                             "Rows": int(dataset_kpis["total_assets"]),
                             "High Risk": int(dataset_kpis["high_risk_assets"]),
                             "Average Risk": f"{dataset_kpis['avg_risk']:.1f}%",
@@ -874,21 +909,21 @@ This helps when your dataset column names are different from the project CSV.
                     preview_cols = FEATURE_COLUMNS + ["risk_probability", "predicted_risk", "recommendation"]
                     st.dataframe(scored_custom_df[preview_cols].head(25), use_container_width=True)
 
-                    safe_name = Path(uploaded_dataset.name).stem.replace(" ", "_")
+                    safe_name = Path(dataset_name).stem.replace(" ", "_")
                     st.download_button(
                         "Download scored CSV",
                         scored_custom_df[preview_cols].to_csv(index=False).encode("utf-8"),
                         f"{safe_name}_scored_predictions.csv",
                         "text/csv",
-                        key=f"download_{file_index}_{uploaded_dataset.name}",
+                        key=f"download_{file_index}_{dataset_name}",
                     )
 
-                    if st.button("Save This Dataset Batch to MySQL", key=f"save_dataset_{file_index}_{uploaded_dataset.name}", use_container_width=True):
+                    if st.button("Save This Dataset Batch to MySQL", key=f"save_dataset_{file_index}_{dataset_name}", use_container_width=True):
                         if not all([db_host, db_user, db_password, db_name]):
                             st.error("Configure MySQL in the sidebar first.")
                         else:
                             try:
-                                run_id = save_batch_predictions(db_config, scored_custom_df, uploaded_dataset.name)
+                                run_id = save_batch_predictions(db_config, scored_custom_df, dataset_name)
                                 st.success(f"Saved to MySQL. run_id: {run_id[:8]}...")
                             except Exception as exc:
                                 st.error(f"Could not save dataset batch: {exc}")
