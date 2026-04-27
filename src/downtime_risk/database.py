@@ -52,6 +52,15 @@ def _ensure_column(cur, table_name: str, column_name: str, definition: str) -> N
         cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
+def _ensure_varchar_width(cur, table_name: str, column_name: str, width: int) -> None:
+    try:
+        cur.execute(
+            f"ALTER TABLE {table_name} MODIFY {column_name} VARCHAR({int(width)})"
+        )
+    except Exception:
+        pass
+
+
 def initialize_tables(config: DatabaseConfig) -> None:
     conn = _connect(config)
     cur = conn.cursor()
@@ -71,6 +80,8 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "prediction_runs", "average_risk", "DOUBLE")
     _ensure_column(cur, "prediction_runs", "high_risk_count", "INT NOT NULL DEFAULT 0")
     _ensure_column(cur, "prediction_runs", "saved_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _ensure_varchar_width(cur, "prediction_runs", "run_id", 64)
+    _ensure_varchar_width(cur, "prediction_runs", "source_name", 255)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS machine_predictions (
@@ -105,6 +116,8 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "machine_predictions", "maintenance_delay_days", "DOUBLE")
     _ensure_column(cur, "machine_predictions", "error_log_count", "DOUBLE")
     _ensure_column(cur, "machine_predictions", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _ensure_varchar_width(cur, "machine_predictions", "run_id", 64)
+    _ensure_varchar_width(cur, "machine_predictions", "machine_label", 255)
     for table, column in [("prediction_runs", "saved_at"), ("machine_predictions", "created_at")]:
         try:
             cur.execute(f"ALTER TABLE {table} MODIFY {column} TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")

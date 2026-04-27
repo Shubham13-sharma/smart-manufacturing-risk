@@ -36,6 +36,7 @@ from src.downtime_risk.visuals import (
 # â”€â”€ Paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ARTIFACT_DIR         = Path("artifacts")
 SAMPLE_DATASET_PATH  = Path("data") / "manufacturing_downtime_sample.csv"
+PROJECT_CSV_PATH     = Path("data") / "real_dataset.csv"
 MODEL_PATH           = ARTIFACT_DIR / "best_model.joblib"
 FEATURES_PATH        = ARTIFACT_DIR / "feature_columns.joblib"
 METRICS_PATH         = ARTIFACT_DIR / "metrics.json"
@@ -481,6 +482,9 @@ try:
     if uploaded_file is not None:
         dataset_df   = load_dataset_from_csv(uploaded_file)
         dataset_note = "Uploaded dataset normalised to project schema."
+    elif PROJECT_CSV_PATH.exists():
+        dataset_df   = load_dataset_from_csv(PROJECT_CSV_PATH)
+        dataset_note = f"Using project dataset: {len(dataset_df):,} machines scored."
     elif SAMPLE_DATASET_PATH.exists():
         dataset_df   = load_dataset_from_csv(SAMPLE_DATASET_PATH)
         dataset_note = f"Using sample dataset: {len(dataset_df):,} machines scored."
@@ -489,15 +493,21 @@ except ValueError as exc:
 
 if dataset_df is not None:
     scored_df   = add_prediction_scores(dataset_df, model)
-    source_name = uploaded_file.name if uploaded_file is not None else SAMPLE_DATASET_PATH.name
+    source_name = uploaded_file.name if uploaded_file is not None else (
+        PROJECT_CSV_PATH.name if PROJECT_CSV_PATH.exists() else SAMPLE_DATASET_PATH.name
+    )
     if "machine_label" in scored_df.columns:
-        st.session_state["dataset_machine_options"] = (
+        machine_options = (
             scored_df["machine_label"].fillna("Unknown").astype(str).drop_duplicates().tolist()
         )
+        if st.session_state.get("dataset_machine_options", []) != machine_options:
+            st.session_state["dataset_machine_options"] = machine_options
+            st.rerun()
 else:
     scored_df   = add_prediction_scores(display_input_df.assign(downtime_risk=prediction), model)
     source_name = "single_machine_demo"
-    st.session_state["dataset_machine_options"] = []
+    if st.session_state.get("dataset_machine_options", []):
+        st.session_state["dataset_machine_options"] = []
 
 if (
     prediction_source == "Loaded dataset machine"
