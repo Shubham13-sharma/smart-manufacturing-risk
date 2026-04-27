@@ -252,7 +252,7 @@ h2,h3,p,label,.stCaption,.stMarkdown,.stText{color:#102a43!important;}
 st.markdown("""
 <section class="hero">
   <div class="badge-row">
-    <span class="badge-pill">ðŸ­ Industry 4.0</span>
+    <span class="badge-pill">Industry 4.0</span>
     <span class="badge-pill">17-Step Workflow</span>
     <span class="badge-pill">ML + SHAP</span>
     <span class="badge-pill">Live Aiven MySQL</span>
@@ -604,9 +604,9 @@ def compute_shap_values(row_df: pd.DataFrame):
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 (tab_overview, tab_predict, tab_analytics,
  tab_shap, tab_workflow, tab_database) = st.tabs([
-    "ðŸ“‹ Overview", "ðŸ¤– Prediction Studio",
-    "ðŸ“Š Plant Analytics", "ðŸ” SHAP Explainability",
-    "ðŸ—ºï¸ 17-Step Workflow", "ðŸ—„ï¸ Database Console",
+    "Overview", "Prediction Studio",
+    "Plant Analytics", "SHAP Explainability",
+    "17-Step Workflow", "Database Console",
 ])
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -705,7 +705,7 @@ with tab_predict:
 
         ac, sc2 = st.columns(2)
         with ac:
-            if st.button("ðŸ’¾ Save Current Prediction", use_container_width=True):
+            if st.button("Save Current Prediction", use_container_width=True):
                 if not all([db_host, db_user, db_password, db_name]):
                     st.error("Configure MySQL in the sidebar first.")
                 else:
@@ -716,7 +716,7 @@ with tab_predict:
                     except Exception as exc:
                         st.error(f"Could not save: {exc}")
         with sc2:
-            if st.button("ðŸ“¦ Save Full Dataset Batch", use_container_width=True):
+            if st.button("Save Full Dataset Batch", use_container_width=True):
                 if not all([db_host, db_user, db_password, db_name]):
                     st.error("Configure MySQL in the sidebar first.")
                 else:
@@ -964,7 +964,7 @@ This helps when your dataset column names are different from the project CSV.
 # TAB 4 â€” SHAP EXPLAINABILITY
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 with tab_shap:
-    st.subheader("ðŸ” SHAP Explainability â€” Why Did the Model Predict This?")
+    st.subheader("SHAP Explainability - Why Did the Model Predict This?")
     st.markdown("""
     **SHAP (SHapley Additive exPlanations)** explains each individual prediction by showing
     how much each sensor feature pushed the risk score **up** (red) or **down** (blue)
@@ -1254,12 +1254,12 @@ with tab_workflow:
 # TAB 6 â€” DATABASE CONSOLE
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 with tab_database:
-    st.subheader("ðŸ—„ï¸ Aiven MySQL Database Console")
+    st.subheader("Aiven MySQL Database Console")
     st.markdown("Save and query predictions from your live cloud database.")
 
     rc1, rc2 = st.columns([1.2, 1])
     with rc1:
-        if st.button("ðŸ”„ Refresh Recent Records", use_container_width=True):
+        if st.button("Refresh Recent Records", use_container_width=True):
             if not all([db_host, db_user, db_password, db_name]):
                 st.error("Load Cloud DB Settings in the sidebar first.")
             else:
