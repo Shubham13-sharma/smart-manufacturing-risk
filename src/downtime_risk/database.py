@@ -41,6 +41,17 @@ def test_connection(config: DatabaseConfig) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _get_table_columns(cur, table_name: str) -> set[str]:
+    cur.execute(f"SHOW COLUMNS FROM {table_name}")
+    return {str(row[0]) for row in cur.fetchall()}
+
+
+def _ensure_column(cur, table_name: str, column_name: str, definition: str) -> None:
+    existing_columns = _get_table_columns(cur, table_name)
+    if column_name not in existing_columns:
+        cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
 def initialize_tables(config: DatabaseConfig) -> None:
     conn = _connect(config)
     cur = conn.cursor()
@@ -56,6 +67,10 @@ def initialize_tables(config: DatabaseConfig) -> None:
         )
         """
     )
+    _ensure_column(cur, "prediction_runs", "record_count", "INT NOT NULL DEFAULT 0")
+    _ensure_column(cur, "prediction_runs", "average_risk", "DOUBLE")
+    _ensure_column(cur, "prediction_runs", "high_risk_count", "INT NOT NULL DEFAULT 0")
+    _ensure_column(cur, "prediction_runs", "saved_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS machine_predictions (
@@ -77,6 +92,19 @@ def initialize_tables(config: DatabaseConfig) -> None:
         )
         """
     )
+    _ensure_column(cur, "machine_predictions", "machine_label", "VARCHAR(255)")
+    _ensure_column(cur, "machine_predictions", "predicted_risk", "INT")
+    _ensure_column(cur, "machine_predictions", "risk_probability", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "recommendation", "TEXT")
+    _ensure_column(cur, "machine_predictions", "machine_temperature", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "bearing_temperature", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "vibration_level", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "pressure", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "runtime_hours", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "load_percentage", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "maintenance_delay_days", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "error_log_count", "DOUBLE")
+    _ensure_column(cur, "machine_predictions", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
     for table, column in [("prediction_runs", "saved_at"), ("machine_predictions", "created_at")]:
         try:
             cur.execute(f"ALTER TABLE {table} MODIFY {column} TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
