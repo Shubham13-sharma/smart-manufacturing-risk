@@ -313,6 +313,21 @@ metrics         = (pd.Series(json.loads(METRICS_PATH.read_text(encoding="utf-8")
 if "dataset_machine_options" not in st.session_state:
     st.session_state["dataset_machine_options"] = []
 
+
+def machine_options_from_dataset(frame: pd.DataFrame) -> list[str]:
+    if frame.empty or "machine_label" not in frame.columns:
+        return []
+    return frame["machine_label"].fillna("Unknown").astype(str).drop_duplicates().tolist()
+
+
+if not st.session_state["dataset_machine_options"] and PROJECT_CSV_PATH.exists():
+    try:
+        st.session_state["dataset_machine_options"] = machine_options_from_dataset(
+            load_dataset_from_csv(PROJECT_CSV_PATH)
+        )
+    except Exception:
+        pass
+
 # â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 with st.sidebar:
     st.header("Operations Panel")
@@ -497,9 +512,7 @@ if dataset_df is not None:
         PROJECT_CSV_PATH.name if PROJECT_CSV_PATH.exists() else SAMPLE_DATASET_PATH.name
     )
     if "machine_label" in scored_df.columns:
-        machine_options = (
-            scored_df["machine_label"].fillna("Unknown").astype(str).drop_duplicates().tolist()
-        )
+        machine_options = machine_options_from_dataset(scored_df)
         if st.session_state.get("dataset_machine_options", []) != machine_options:
             st.session_state["dataset_machine_options"] = machine_options
             st.rerun()

@@ -61,6 +61,40 @@ def _ensure_varchar_width(cur, table_name: str, column_name: str, width: int) ->
         pass
 
 
+def _get_column_info(cur, table_name: str, column_name: str) -> dict[str, str]:
+    cur.execute(f"SHOW COLUMNS FROM {table_name} LIKE %s", (column_name,))
+    row = cur.fetchone()
+    if not row:
+        return {}
+    return {
+        "field": str(row[0]),
+        "type": str(row[1]).lower(),
+        "null": str(row[2]).lower(),
+        "key": str(row[3]).lower(),
+        "default": "" if row[4] is None else str(row[4]),
+        "extra": str(row[5]).lower(),
+    }
+
+
+def _run_id_mode(cur) -> str:
+    prediction_info = _get_column_info(cur, "prediction_runs", "run_id")
+    machine_info = _get_column_info(cur, "machine_predictions", "run_id")
+    run_id_types = f"{prediction_info.get('type', '')} {machine_info.get('type', '')}"
+    if "auto_increment" in prediction_info.get("extra", ""):
+        return "auto_integer"
+    if any(token in run_id_types for token in ("tinyint", "smallint", "mediumint", "int", "bigint")):
+        return "manual_integer"
+    return "text"
+
+
+def _make_run_id(mode: str) -> str | int | None:
+    if mode == "text":
+        return uuid.uuid4().hex
+    if mode == "manual_integer":
+        return uuid.uuid4().int % 2_000_000_000
+    return None
+
+
 def initialize_tables(config: DatabaseConfig) -> None:
     conn = _connect(config)
     cur = conn.cursor()
@@ -146,23 +180,35 @@ def save_single_prediction(
 
 def save_batch_predictions(config: DatabaseConfig, scored_df: pd.DataFrame, source_name: str) -> str:
     initialize_tables(config)
-    run_id = uuid.uuid4().hex
     conn = _connect(config)
     cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO prediction_runs
-        (run_id, source_name, record_count, average_risk, high_risk_count)
-        VALUES (%s, %s, %s, %s, %s)
-        """,
-        (
-            run_id,
-            source_name,
-            int(len(scored_df)),
-            float(scored_df["risk_probability"].mean()) if len(scored_df) else 0.0,
-            int(scored_df["predicted_risk"].sum()) if len(scored_df) else 0,
-        ),
+    run_id_mode = _run_id_mode(cur)
+    run_id = _make_run_id(run_id_mode)
+    run_summary_values = (
+        source_name,
+        int(len(scored_df)),
+        float(scored_df["risk_probability"].mean()) if len(scored_df) else 0.0,
+        int(scored_df["predicted_risk"].sum()) if len(scored_df) else 0,
     )
+    if run_id_mode == "auto_integer":
+        cur.execute(
+            """
+            INSERT INTO prediction_runs
+            (source_name, record_count, average_risk, high_risk_count)
+            VALUES (%s, %s, %s, %s)
+            """,
+            run_summary_values,
+        )
+        run_id = cur.lastrowid
+    else:
+        cur.execute(
+            """
+            INSERT INTO prediction_runs
+            (run_id, source_name, record_count, average_risk, high_risk_count)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (run_id, *run_summary_values),
+        )
     insert_sql = """
         INSERT INTO machine_predictions
         (run_id, machine_label, predicted_risk, risk_probability, recommendation,
@@ -194,7 +240,7 @@ def save_batch_predictions(config: DatabaseConfig, scored_df: pd.DataFrame, sour
     conn.commit()
     cur.close()
     conn.close()
-    return run_id
+    return str(run_id)
 
 
 def fetch_recent_predictions(config: DatabaseConfig, limit: int = 25) -> pd.DataFrame:
