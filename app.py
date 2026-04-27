@@ -778,7 +778,13 @@ with tab_analytics:
     disp_cols = FEATURE_COLUMNS + [c for c in ["risk_probability","predicted_risk"] if c in scored_df.columns]
     st.dataframe(scored_df[disp_cols].head(25), use_container_width=True)
     csv_bytes = scored_df[disp_cols].to_csv(index=False).encode()
-    st.download_button("Download Full Scored CSV", csv_bytes, "scored_predictions.csv", "text/csv")
+    st.download_button(
+        "Download Full Scored CSV",
+        csv_bytes,
+        "scored_predictions.csv",
+        "text/csv",
+        key="download_full_scored_csv_main",
+    )
     st.markdown("---")
     st.subheader("Multi Dataset Lab")
     st.markdown(
@@ -958,7 +964,6 @@ This helps when your dataset column names are different from the project CSV.
                 f"with an average risk of {riskiest_dataset['Average Risk Numeric']:.1f}% "
                 f"and {riskiest_dataset['High Risk']} high-risk records."
             )
-    st.download_button("Download Full Scored CSV", csv_bytes, "scored_predictions.csv", "text/csv")
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # TAB 4 â€” SHAP EXPLAINABILITY
@@ -1273,9 +1278,13 @@ with tab_database:
         rec_df = st.session_state.get("recent_predictions")
         if rec_df is not None and not rec_df.empty:
             st.dataframe(rec_df, use_container_width=True, hide_index=True)
-            st.download_button("Download Records CSV",
-                               rec_df.to_csv(index=False).encode(),
-                               "db_predictions.csv", "text/csv")
+            st.download_button(
+                "Download Records CSV",
+                rec_df.to_csv(index=False).encode(),
+                "db_predictions.csv",
+                "text/csv",
+                key="download_db_predictions_csv",
+            )
         elif rec_df is not None:
             st.info("No records yet - save a prediction from Prediction Studio first.")
         else:
