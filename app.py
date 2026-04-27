@@ -358,17 +358,89 @@ with st.sidebar:
                     st.error(f"Setup failed: {exc}")
 
     st.markdown("---")
+    st.subheader("Prediction Source")
+    dataset_machine_available = (
+        dataset_df is not None
+        and "machine_label" in scored_df.columns
+        and not scored_df.empty
+    )
+    if dataset_machine_available:
+        prediction_source = st.radio(
+            "Choose how to score the machine",
+            ["Manual machine", "Loaded dataset machine"],
+            key="sidebar_prediction_source",
+        )
+    else:
+        prediction_source = "Manual machine"
+        st.caption("Load a dataset to choose a real machine from your CSV.")
+
+    st.markdown("---")
     st.subheader("Single Machine Demo")
-    machine_label          = st.text_input("Machine label", value="CNC-17")
-    machine_temperature    = st.slider("Machine temperature (C)", 30.0, 120.0, 78.0)
-    bearing_temperature    = st.slider("Bearing temperature (C)", 25.0, 140.0, 82.0)
-    vibration_level        = st.slider("Vibration level",          0.0,  15.0,   4.5)
-    pressure               = st.slider("Pressure",                50.0, 250.0, 140.0)
-    runtime_hours          = st.slider("Runtime hours",              0, 10000,  2400)
-    load_percentage        = st.slider("Load percentage",          0.0, 120.0,  72.0)
-    maintenance_delay_days = st.slider("Maintenance delay (days)",   0,   180,    15)
-    error_log_count        = st.slider("Error log count",            0,    20,     2)
-    run_prediction         = st.button("Run Prediction", use_container_width=True)
+    selected_dataset_machine = None
+    if prediction_source == "Loaded dataset machine" and dataset_machine_available:
+        dataset_machine_options = (
+            scored_df["machine_label"].fillna("Unknown").astype(str).drop_duplicates().tolist()
+        )
+        selected_dataset_machine = st.selectbox(
+            "Choose machine from loaded dataset",
+            dataset_machine_options,
+            key="sidebar_selected_dataset_machine",
+        )
+        selected_row = scored_df.loc[
+            scored_df["machine_label"].fillna("Unknown").astype(str) == selected_dataset_machine
+        ].iloc[0]
+        machine_label = selected_dataset_machine
+        machine_temperature = float(selected_row["machine_temperature"])
+        bearing_temperature = float(selected_row["bearing_temperature"])
+        vibration_level = float(selected_row["vibration_level"])
+        pressure = float(selected_row["pressure"])
+        runtime_hours = int(selected_row["runtime_hours"])
+        load_percentage = float(selected_row["load_percentage"])
+        maintenance_delay_days = int(selected_row["maintenance_delay_days"])
+        error_log_count = int(selected_row["error_log_count"])
+        st.caption("The current prediction, SHAP view, and save action now use this selected dataset machine.")
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Field": [
+                        "Machine label",
+                        "Machine temperature (C)",
+                        "Bearing temperature (C)",
+                        "Vibration level",
+                        "Pressure",
+                        "Runtime hours",
+                        "Load percentage",
+                        "Maintenance delay (days)",
+                        "Error log count",
+                    ],
+                    "Value": [
+                        machine_label,
+                        machine_temperature,
+                        bearing_temperature,
+                        vibration_level,
+                        pressure,
+                        runtime_hours,
+                        load_percentage,
+                        maintenance_delay_days,
+                        error_log_count,
+                    ],
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+        run_prediction = st.button("Use Selected Machine", use_container_width=True)
+    else:
+        machine_label = st.text_input("Machine label", value="CNC-17")
+        machine_temperature = st.slider("Machine temperature (C)", 30.0, 120.0, 78.0)
+        bearing_temperature = st.slider("Bearing temperature (C)", 25.0, 140.0, 82.0)
+        vibration_level = st.slider("Vibration level", 0.0, 15.0, 4.5)
+        pressure = st.slider("Pressure", 50.0, 250.0, 140.0)
+        runtime_hours = st.slider("Runtime hours", 0, 10000, 2400)
+        load_percentage = st.slider("Load percentage", 0.0, 120.0, 72.0)
+        maintenance_delay_days = st.slider("Maintenance delay (days)", 0, 180, 15)
+        error_log_count = st.slider("Error log count", 0, 20, 2)
+        run_prediction = st.button("Run Prediction", use_container_width=True)
 
 # â”€â”€ Prediction state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 input_df = pd.DataFrame([{
@@ -384,15 +456,47 @@ input_df = pd.DataFrame([{
 
 if "latest_prediction" not in st.session_state:
     _p, _pb = predict_risk(model, input_df[feature_columns], threshold=risk_threshold)
-    st.session_state.update(latest_prediction=_p, latest_probability=_pb, latest_input_df=input_df.copy())
+    st.session_state.update(
+        latest_prediction=_p,
+        latest_probability=_pb,
+        latest_input_df=input_df.copy(),
+        latest_machine_label=machine_label,
+    )
 
-if run_prediction:
-    _p, _pb = predict_risk(model, input_df[feature_columns], threshold=risk_threshold)
-    st.session_state.update(latest_prediction=_p, latest_probability=_pb, latest_input_df=input_df.copy())
+if prediction_source == "Loaded dataset machine" and dataset_machine_available:
+    current_scored_row = scored_df.loc[
+        scored_df["machine_label"].fillna("Unknown").astype(str) == machine_label
+    ].iloc[0]
+    dataset_input_df = pd.DataFrame([current_scored_row[feature_columns].to_dict()])
+    dataset_prediction = int(current_scored_row["predicted_risk"])
+    dataset_probability = float(current_scored_row["risk_probability"])
+    if (
+        run_prediction
+        or st.session_state.get("latest_machine_label") != machine_label
+        or st.session_state.get("latest_prediction_source") != "Loaded dataset machine"
+    ):
+        st.session_state.update(
+            latest_prediction=dataset_prediction,
+            latest_probability=dataset_probability,
+            latest_input_df=dataset_input_df.copy(),
+            latest_machine_label=machine_label,
+            latest_prediction_source="Loaded dataset machine",
+        )
+else:
+    if run_prediction or st.session_state.get("latest_prediction_source") != "Manual machine":
+        _p, _pb = predict_risk(model, input_df[feature_columns], threshold=risk_threshold)
+        st.session_state.update(
+            latest_prediction=_p,
+            latest_probability=_pb,
+            latest_input_df=input_df.copy(),
+            latest_machine_label=machine_label,
+            latest_prediction_source="Manual machine",
+        )
 
 prediction       = st.session_state["latest_prediction"]
 probability      = st.session_state["latest_probability"]
 display_input_df = st.session_state["latest_input_df"]
+machine_label    = st.session_state.get("latest_machine_label", machine_label)
 recommendation   = ("Immediate maintenance inspection recommended"
                     if prediction == 1 else "Continue monitoring under normal schedule")
 
@@ -677,23 +781,29 @@ with tab_predict:
     left, right = st.columns([1.15, 1])
     with left:
         st.subheader("Live Machine Prediction")
-        if prediction == 1:
-            st.error(f"High downtime risk - {probability:.1%} probability.")
-        else:
-            st.success(f"Low downtime risk - {probability:.1%} probability.")
+        active_machine_label = machine_label
+        active_input_df = display_input_df.copy()
+        active_prediction = prediction
+        active_probability = probability
+        active_recommendation = recommendation
 
-        if probability >= 0.50:
+        if active_prediction == 1:
+            st.error(f"High downtime risk - {active_probability:.1%} probability.")
+        else:
+            st.success(f"Low downtime risk - {active_probability:.1%} probability.")
+
+        if active_probability >= 0.50:
             st.error("IMMEDIATE - Trigger maintenance alert and inspect now.")
-        elif probability >= 0.30:
+        elif active_probability >= 0.30:
             st.warning("48-HOUR WINDOW - Schedule inspection within 48 hours.")
         else:
             st.info("NORMAL CYCLE - Continue operation, keep monitoring.")
 
         st.markdown("**AI support insight**")
-        st.info(build_ai_recommendation(display_input_df, probability, prediction))
+        st.info(build_ai_recommendation(active_input_df, active_probability, active_prediction))
 
         gauge = px.bar(
-            pd.DataFrame({"Machine": [machine_label], "Probability": [probability]}),
+            pd.DataFrame({"Machine": [active_machine_label], "Probability": [active_probability]}),
             x="Probability", y="Machine", orientation="h", text_auto=".0%",
             range_x=[0, 1], color="Probability",
             color_continuous_scale=["#2a9d8f","#edae49","#d1495b"],
@@ -710,8 +820,8 @@ with tab_predict:
                     st.error("Configure MySQL in the sidebar first.")
                 else:
                     try:
-                        save_single_prediction(db_config, display_input_df, prediction,
-                                               probability, recommendation, machine_label)
+                        save_single_prediction(db_config, active_input_df, active_prediction,
+                                               active_probability, active_recommendation, active_machine_label)
                         st.success("Saved to Aiven MySQL.")
                     except Exception as exc:
                         st.error(f"Could not save: {exc}")
@@ -728,11 +838,11 @@ with tab_predict:
 
     with right:
         st.subheader("Machine Input Snapshot")
-        st.dataframe(display_input_df, use_container_width=True, hide_index=True)
+        st.dataframe(active_input_df, use_container_width=True, hide_index=True)
         st.dataframe(pd.DataFrame({
             "Field": ["Machine label","Predicted risk","Probability","Recommendation"],
-            "Value": [machine_label, "HIGH RISK" if prediction==1 else "STABLE",
-                      f"{probability:.1%}", recommendation],
+            "Value": [active_machine_label, "HIGH RISK" if active_prediction==1 else "STABLE",
+                      f"{active_probability:.1%}", active_recommendation],
         }), use_container_width=True, hide_index=True)
         if not metrics.empty:
             st.caption("Best trained model performance")
