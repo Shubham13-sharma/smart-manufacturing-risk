@@ -64,11 +64,11 @@ WORKFLOW_STEPS = [
     "Deploy app on Streamlit Cloud",
     "Document productivity benefits",
 ]
-STEP_ICONS = ["ðŸŽ¯","ðŸ“¦","ðŸ“Š","ðŸ§¹","ðŸ“ˆ","âš™ï¸","ðŸ·ï¸","âœ‚ï¸","ðŸ¤–","âš ï¸","ðŸ”","ðŸ—“ï¸","ðŸ’¾","ðŸ–¥ï¸","ðŸ§ª","ðŸš€","ðŸ“"]
+STEP_ICONS = ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17"]
 STEP_DETAILS = {
     1:  {"what":"Define the business problem: predict machine downtime risk before failure occurs, enabling proactive maintenance scheduling.",
-         "why":"Unplanned downtime costs manufacturing plants an average of â‚¹18,00,000/hour. Early classification allows intervention 24â€“48 hours before failure.",
-         "output":"A binary classification target â€” 0 (stable) or 1 (high risk) â€” derived from sensor thresholds and historical failure logs.",
+         "why":"Unplanned downtime costs manufacturing plants an average of Rs 18,00,000 per hour. Early classification allows intervention 24-48 hours before failure.",
+         "output":"A binary classification target - 0 (stable) or 1 (high risk) - derived from sensor thresholds and historical failure logs.",
          "formula":None},
     2:  {"what":"Collect 8 sensor and operational signals from factory floor equipment: temperature, vibration, pressure, load, runtime, maintenance delay, and error logs.",
          "why":"These signals are leading indicators of mechanical stress. Bearing temperature and vibration together predict over 60% of mechanical failures.",
@@ -77,7 +77,7 @@ STEP_DETAILS = {
     3:  {"what":"Analyze the frequency and distribution of past failures across machines, shifts, and time windows.",
          "why":"Helps identify which machines fail most often, at what load/temperature thresholds, and whether failures are random or systematic.",
          "output":"Failure rate statistics, class imbalance ratio, and identification of high-risk machine clusters.",
-         "formula":"Failure Rate = (Total Failures / Total Operating Hours) Ã— 1000"},
+         "formula":"Failure Rate = (Total Failures / Total Operating Hours) x 1000"},
     4:  {"what":"Handle missing sensor readings using median imputation. Remove duplicate rows. Cap outliers at the 1st/99th percentile.",
          "why":"Dirty data causes model degradation. A single missing bearing temperature reading can cause a 12% drop in recall for the positive class.",
          "output":"Clean, complete DataFrame with no nulls, no duplicates, and bounded feature ranges.",
@@ -86,58 +86,58 @@ STEP_DETAILS = {
          "why":"Trend analysis reveals seasonal patterns (e.g., higher failures during peak production months) that single-point predictions miss.",
          "output":"Failure trend line chart, rolling average risk scores, fleet-level risk heatmap.",
          "formula":"Rolling Risk = mean(risk_probability[t-w : t])  for window w"},
-    6:  {"what":"Create composite features: stress_index = temperature Ã— vibration, overload_flag = load > 85%, age_risk = runtime_hours / max_runtime.",
+    6:  {"what":"Create composite features: stress_index = temperature x vibration, overload_flag = load > 85%, age_risk = runtime_hours / max_runtime.",
          "why":"Raw sensor values are less predictive than combinations. The stress_index alone improves Random Forest F1 by ~8%.",
          "output":"Enriched feature matrix with engineered columns added alongside original signals.",
-         "formula":"stress_index  = (machine_temp / 120) Ã— (vibration / 15)\noverload_flag = 1 if load_pct > 85 else 0"},
+         "formula":"stress_index  = (machine_temp / 120) x (vibration / 15)\noverload_flag = 1 if load_pct > 85 else 0"},
     7:  {"what":"Encode machine type, shift, and maintenance category using one-hot encoding or ordinal encoding.",
          "why":"Categorical variables like 'machine_type = CNC' cannot be used directly by sklearn models without numeric encoding.",
          "output":"All features converted to numeric dtype, ready for model input.",
-         "formula":"One-Hot: [CNC, Lathe, Press] â†’ [1,0,0], [0,1,0], [0,0,1]"},
+         "formula":"One-Hot: [CNC, Lathe, Press] -> [1,0,0], [0,1,0], [0,0,1]"},
     8:  {"what":"Split the cleaned dataset into 80% training and 20% test sets using stratified sampling to preserve the class imbalance ratio.",
          "why":"Stratification ensures the ~7% positive rate is preserved in both train and test splits, preventing misleadingly high accuracy.",
-         "output":"X_train, X_test, y_train, y_test â€” confirmed class distribution in both splits.",
-         "formula":"Stratified Split: positive_rate(train) â‰ˆ positive_rate(test) â‰ˆ positive_rate(full)"},
-    9:  {"what":"Train two classifiers â€” Logistic Regression and Random Forest â€” inside a Pipeline with median imputation and standard scaling.",
+         "output":"X_train, X_test, y_train, y_test - confirmed class distribution in both splits.",
+         "formula":"Stratified Split: positive_rate(train) ~= positive_rate(test) ~= positive_rate(full)"},
+    9:  {"what":"Train two classifiers - Logistic Regression and Random Forest - inside a Pipeline with median imputation and standard scaling.",
          "why":"Using a Pipeline prevents data leakage (scaling fit only on training data) and enables one-step deployment.",
          "output":"Two fitted pipelines evaluated by 5-fold cross-validation F1. Best model saved to artifacts/.",
-         "formula":"LR: P(Y=1|X) = 1 / (1 + e^âˆ’(wâ‚€ + wâ‚xâ‚ + â€¦ + wâ‚™xâ‚™))\nRF: majority vote of 200 decision trees"},
+         "formula":"LR: P(Y=1|X) = 1 / (1 + e^-(w0 + w1x1 + ... + wnxn))\nRF: majority vote of 200 decision trees"},
     10: {"what":"Measure Accuracy, Precision, Recall, and F1 on the held-out test set. Analyse the confusion matrix to understand false negatives (missed failures).",
          "why":"In manufacturing, a False Negative (missed failure) is more costly than a False Positive. Optimise for Recall alongside F1.",
          "output":"Confusion matrix, classification report, and threshold sensitivity analysis.",
-         "formula":"Precision = TP/(TP+FP)\nRecall    = TP/(TP+FN)\nF1        = 2 Ã— (Precision Ã— Recall) / (Precision + Recall)"},
+         "formula":"Precision = TP/(TP+FP)\nRecall    = TP/(TP+FN)\nF1        = 2 x (Precision x Recall) / (Precision + Recall)"},
     11: {"what":"Use SHAP (SHapley Additive exPlanations) to rank which sensor signals drive each prediction. Feature importance gives global view; SHAP gives per-machine explanation.",
          "why":"Knowing that 'maintenance_delay_days' and 'bearing_temperature' are top drivers lets plant managers prioritise those checks.",
          "output":"Feature importance bar chart, SHAP waterfall for any individual machine prediction.",
-         "formula":"SHAP value Ï†áµ¢ = weighted average of marginal contributions across all feature subsets"},
-    12: {"what":"Convert model output into actionable maintenance schedules: â‰¥50% risk â†’ immediate; 30â€“50% â†’ 48h; <30% â†’ normal cycle.",
+         "formula":"SHAP value phi_i = weighted average of marginal contributions across all feature subsets"},
+    12: {"what":"Convert model output into actionable maintenance schedules: >=50% risk -> immediate; 30-50% -> 48h; <30% -> normal cycle.",
          "why":"A prediction with no action plan has zero business value. Risk banding maps model output directly to maintenance team workflows.",
          "output":"Risk-banded recommendation engine integrated into the dashboard and stored in MySQL.",
-         "formula":"risk â‰¥ 0.50 â†’ Immediate\n0.30 â‰¤ risk < 0.50 â†’ 48h\nrisk < 0.30 â†’ Normal"},
+         "formula":"risk >= 0.50 -> Immediate\n0.30 <= risk < 0.50 -> 48h\nrisk < 0.30 -> Normal"},
     13: {"what":"Serialize the best pipeline, feature column list, and evaluation metrics using joblib. Commit artifacts to Git for cloud deployment.",
          "why":"Joblib efficiently serializes sklearn Pipelines including the fitted scaler and imputer. Committing artifacts means Streamlit Cloud loads instantly.",
          "output":"artifacts/best_model.joblib, artifacts/feature_columns.joblib, artifacts/metrics.json",
          "formula":None},
     14: {"what":"Build a 5-tab Streamlit dashboard: Overview, Prediction Studio, Plant Analytics, 17-Step Workflow, Database Console.",
-         "why":"Streamlit turns a trained model into a shareable web app in pure Python â€” no HTML/CSS/JS required.",
+         "why":"Streamlit turns a trained model into a shareable web app in pure Python - no HTML/CSS/JS required.",
          "output":"This live dashboard at your Streamlit Cloud URL.",
          "formula":None},
     15: {"what":"Test the model on edge-case machines: maximum temperature + vibration (should predict 1), minimum all signals (should predict 0), boundary conditions.",
          "why":"Unit testing the prediction function catches threshold bugs and ensures the model generalises beyond the training distribution.",
-         "output":"Verified: high-stress â†’ prediction=1 (~76%). Stable â†’ prediction=0 (~0.2%).",
+         "output":"Verified: high-stress -> prediction=1 (~76%). Stable -> prediction=0 (~0.2%).",
          "formula":None},
     16: {"what":"Deploy the app on Streamlit Community Cloud connected to Aiven-managed MySQL for live prediction storage.",
-         "why":"Cloud deployment demonstrates end-to-end engineering: model training â†’ inference â†’ persistent storage â€” all production-grade.",
+         "why":"Cloud deployment demonstrates end-to-end engineering: model training -> inference -> persistent storage - all production-grade.",
          "output":"Live URL. MySQL on Aiven stores every prediction with timestamp and recommendation.",
          "formula":None},
     17: {"what":"Quantify the productivity impact: reduction in unplanned downtime, maintenance cost savings, and false-alarm rate.",
          "why":"Stakeholders need business outcomes, not just model metrics. Translating F1=0.65 into '38% reduction in missed failures' is the final deliverable.",
          "output":"ROI summary, before/after downtime comparison, and recommended next steps.",
-         "formula":"Savings = (Prevented Failures Ã— Avg Downtime Cost) âˆ’ (False Alarms Ã— Inspection Cost)"},
+         "formula":"Savings = (Prevented Failures x Avg Downtime Cost) - (False Alarms x Inspection Cost)"},
 }
 
 # â”€â”€ Page config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-st.set_page_config(page_title="Downtime Risk Command Center", page_icon="ðŸ­", layout="wide")
+st.set_page_config(page_title="Downtime Risk Command Center", page_icon="H", layout="wide")
 st.markdown("""
 <style>
 .stApp {
@@ -260,7 +260,7 @@ st.markdown("""
   </div>
   <h1>Smart Manufacturing Downtime Risk Command Center</h1>
   <p>Monitor machine health, score downtime risk, explain predictions with SHAP,
-     and store records in Aiven MySQL â€” complete end-to-end ML project for HCL internship.</p>
+     and store records in Aiven MySQL - complete end-to-end ML project for HCL internship.</p>
 </section>
 """, unsafe_allow_html=True)
 
@@ -291,7 +291,7 @@ for _k, _v in [("db_host", default_db_settings["host"]),
 
 # â”€â”€ Auto-train if artifacts missing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if not MODEL_PATH.exists() or not FEATURES_PATH.exists():
-    with st.spinner("First launch: training model on sample data (~20 s)â€¦"):
+    with st.spinner("First launch: training model on sample data (~20 s)..."):
         try:
             if not SAMPLE_DATASET_PATH.exists():
                 from scripts.generate_sample_data import generate as _gen
@@ -353,15 +353,15 @@ with st.sidebar:
             else:
                 try:
                     initialize_tables(db_config)
-                    st.success("Tables ready âœ…")
+                    st.success("Tables ready.")
                 except Exception as exc:
                     st.error(f"Setup failed: {exc}")
 
     st.markdown("---")
     st.subheader("Single Machine Demo")
     machine_label          = st.text_input("Machine label", value="CNC-17")
-    machine_temperature    = st.slider("Machine temperature (Â°C)", 30.0, 120.0, 78.0)
-    bearing_temperature    = st.slider("Bearing temperature (Â°C)", 25.0, 140.0, 82.0)
+    machine_temperature    = st.slider("Machine temperature (C)", 30.0, 120.0, 78.0)
+    bearing_temperature    = st.slider("Bearing temperature (C)", 25.0, 140.0, 82.0)
     vibration_level        = st.slider("Vibration level",          0.0,  15.0,   4.5)
     pressure               = st.slider("Pressure",                50.0, 250.0, 140.0)
     runtime_hours          = st.slider("Runtime hours",              0, 10000,  2400)
@@ -617,7 +617,7 @@ with tab_overview:
     c1.markdown("""<div class="summary-card">
         <div class="summary-title">Project Deliverable</div>
         <div class="summary-value">Downtime Risk Model</div>
-        <p>End-to-end ML pipeline: data â†’ training â†’ live scoring â†’ SHAP explanations â†’ MySQL storage.</p>
+        <p>End-to-end ML pipeline: data -> training -> live scoring -> SHAP explanations -> MySQL storage.</p>
     </div>""", unsafe_allow_html=True)
     c2.markdown("""<div class="summary-card">
         <div class="summary-title">ML Techniques</div>
@@ -678,16 +678,16 @@ with tab_predict:
     with left:
         st.subheader("Live Machine Prediction")
         if prediction == 1:
-            st.error(f"âš ï¸ High downtime risk â€” {probability:.1%} probability.")
+            st.error(f"High downtime risk - {probability:.1%} probability.")
         else:
-            st.success(f"âœ… Low downtime risk â€” {probability:.1%} probability.")
+            st.success(f"Low downtime risk - {probability:.1%} probability.")
 
         if probability >= 0.50:
-            st.error("ðŸ”´ **IMMEDIATE** â€” Trigger maintenance alert and inspect now.")
+            st.error("IMMEDIATE - Trigger maintenance alert and inspect now.")
         elif probability >= 0.30:
-            st.warning("ðŸŸ¡ **48-HOUR WINDOW** â€” Schedule inspection within 48 hours.")
+            st.warning("48-HOUR WINDOW - Schedule inspection within 48 hours.")
         else:
-            st.info("ðŸŸ¢ **NORMAL CYCLE** â€” Continue operation, keep monitoring.")
+            st.info("NORMAL CYCLE - Continue operation, keep monitoring.")
 
         st.markdown("**AI support insight**")
         st.info(build_ai_recommendation(display_input_df, probability, prediction))
@@ -712,7 +712,7 @@ with tab_predict:
                     try:
                         save_single_prediction(db_config, display_input_df, prediction,
                                                probability, recommendation, machine_label)
-                        st.success("Saved to Aiven MySQL âœ…")
+                        st.success("Saved to Aiven MySQL.")
                     except Exception as exc:
                         st.error(f"Could not save: {exc}")
         with sc2:
@@ -722,7 +722,7 @@ with tab_predict:
                 else:
                     try:
                         run_id = save_batch_predictions(db_config, scored_df, source_name)
-                        st.success(f"Batch saved âœ…  run_id: {run_id[:8]}â€¦")
+                        st.success(f"Batch saved. run_id: {run_id[:8]}...")
                     except Exception as exc:
                         st.error(f"Could not save batch: {exc}")
 
@@ -754,7 +754,7 @@ with tab_analytics:
         st.plotly_chart(feature_correlation_chart(scored_df), use_container_width=True)
 
     # Feature importance
-    st.subheader("Feature Importance â€” What Drives Downtime Risk?")
+    st.subheader("Feature Importance - What Drives Downtime Risk?")
     try:
         rf_clf = model.named_steps.get("clf") or model.named_steps.get("classifier")
         if hasattr(rf_clf, "feature_importances_"):
@@ -958,7 +958,7 @@ This helps when your dataset column names are different from the project CSV.
                 f"with an average risk of {riskiest_dataset['Average Risk Numeric']:.1f}% "
                 f"and {riskiest_dataset['High Risk']} high-risk records."
             )
-    st.download_button("â¬‡ï¸ Download Full Scored CSV", csv_bytes, "scored_predictions.csv", "text/csv")
+    st.download_button("Download Full Scored CSV", csv_bytes, "scored_predictions.csv", "text/csv")
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # TAB 4 â€” SHAP EXPLAINABILITY
@@ -972,8 +972,8 @@ with tab_shap:
     """)
 
     if not shap_available:
-        # Show the REAL reason SHAP failed â€” not just "not installed"
-        st.error("âš ï¸ SHAP explainer could not be loaded.")
+        # Show the real reason SHAP failed.
+        st.error("SHAP explainer could not be loaded.")
         if _SHAP_LOAD_ERROR:
             st.markdown(f"""
 **Reason:**
@@ -984,15 +984,15 @@ with tab_shap:
         # Step-by-step fix guide
         st.markdown("""
 ---
-### ðŸ”§ How to fix this
+### How to fix this
 
 **If the error says "not installed" or "no module named shap":**
 
-> Streamlit Cloud has a **cached build** â€” it did not reinstall packages.
+> Streamlit Cloud has a **cached build** - it did not reinstall packages.
 
 1. Go to [share.streamlit.io](https://share.streamlit.io)
-2. Find your app â†’ click the **â‹® menu** (top right)
-3. Click **Reboot app** â€” this forces a full `pip install -r requirements.txt`
+2. Find your app -> click the menu in the top right
+3. Click **Reboot app** - this forces a full `pip install -r requirements.txt`
 4. Wait ~60 seconds for the app to restart
 
 **If the error says "failed to initialise" (SHAP is installed but crashes):**
@@ -1006,7 +1006,7 @@ python scripts/train_model.py --dataset data/manufacturing_downtime_sample.csv
 2. Commit the new `artifacts/best_model.joblib` to GitHub
 3. Streamlit Cloud will redeploy automatically
 
-**If nothing works â€” check your requirements.txt has:**
+**If nothing works - check your requirements.txt has:**
 ```
 shap==0.46.0
 ```
@@ -1034,8 +1034,8 @@ shap==0.46.0
                     textposition="outside",
                 ))
                 fig_shap.update_layout(
-                    title=f"SHAP Waterfall â€” {machine_label}<br>"
-                          f"<sup>Base: {base_val:.3f}  â†’  Prediction: {probability:.1%}</sup>",
+                    title=f"SHAP Waterfall - {machine_label}<br>"
+                          f"<sup>Base: {base_val:.3f} -> Prediction: {probability:.1%}</sup>",
                     xaxis_title="SHAP value (impact on risk score)",
                     template="plotly_white",
                     margin=dict(l=10, r=40, t=80, b=10),
@@ -1046,15 +1046,15 @@ shap==0.46.0
                 st.dataframe(
                     shap_df.sort_values("SHAP Value", ascending=False)
                     .assign(**{"Direction": lambda d: d["SHAP Value"].apply(
-                        lambda v: "â¬†ï¸ Increases risk" if v > 0 else "â¬‡ï¸ Reduces risk"
+                        lambda v: "Increases risk" if v > 0 else "Reduces risk"
                     )}),
                     use_container_width=True, hide_index=True,
                 )
             else:
-                st.info("SHAP calculation failed for this input â€” try different slider values.")
+                st.info("SHAP calculation failed for this input - try different slider values.")
 
         with shap_col2:
-            st.markdown("**Global SHAP â€” Fleet-level feature impact**")
+            st.markdown("**Global SHAP - Fleet-level feature impact**")
             if dataset_df is not None and len(dataset_df) >= 10:
                 try:
                     sample_size = min(200, len(dataset_df))
@@ -1108,8 +1108,8 @@ shap==0.46.0
 
 | Colour | Meaning |
 |--------|---------|
-| ðŸ”´ Red bars (positive SHAP) | This feature **increases** downtime risk for this machine |
-| ðŸ”µ Blue bars (negative SHAP) | This feature **decreases** downtime risk for this machine |
+| Red bars (positive SHAP) | This feature **increases** downtime risk for this machine |
+| Blue bars (negative SHAP) | This feature **decreases** downtime risk for this machine |
 | Bar length | How strongly that feature influences the prediction |
 
 **Example:** If `bearing_temperature` has SHAP = +0.35, it means that machine's high bearing temperature
@@ -1129,11 +1129,11 @@ with tab_workflow:
     for i, step_name in enumerate(WORKFLOW_STEPS, start=1):
         icon   = STEP_ICONS[i - 1]
         detail = STEP_DETAILS[i]
-        status_badge = "âœ… Done"
+        status_badge = "Done"
         status_bg    = "#dcfce7"
         status_color = "#166534"
 
-        with st.expander(f"{icon}  Step {i:02d} â€” {step_name}", expanded=(i == 1)):
+        with st.expander(f"{icon}  Step {i:02d} - {step_name}", expanded=(i == 1)):
             st.markdown(f"""
             <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:.8rem;">
                 <div style="width:2.8rem;height:2.8rem;border-radius:12px;
@@ -1148,28 +1148,28 @@ with tab_workflow:
 
             cw, cy = st.columns(2)
             with cw:
-                st.markdown("**ðŸ“Œ What we did**")
+                st.markdown("**What we did**")
                 st.markdown(f"<div class='detail-text'>{detail['what']}</div>", unsafe_allow_html=True)
             with cy:
-                st.markdown("**ðŸ’¡ Why it matters**")
+                st.markdown("**Why it matters**")
                 st.markdown(f"<div class='detail-text'>{detail['why']}</div>", unsafe_allow_html=True)
 
-            st.markdown("**ðŸ“¤ Output**")
-            st.markdown(f"<div class='output-box'>âœ… {detail['output']}</div>", unsafe_allow_html=True)
+            st.markdown("**Output**")
+            st.markdown(f"<div class='output-box'>{detail['output']}</div>", unsafe_allow_html=True)
             if detail["formula"]:
-                st.markdown("**ðŸ”¢ Formula**")
+                st.markdown("**Formula**")
                 st.markdown(f"<div class='formula-box'>{detail['formula']}</div>", unsafe_allow_html=True)
 
             # Live data embeds
             if i == 9 and not metrics.empty:
-                st.markdown("**ðŸ“Š Live Training Results**")
+                st.markdown("**Live Training Results**")
                 mc1,mc2,mc3,mc4 = st.columns(4)
                 for col,(k,lbl) in zip([mc1,mc2,mc3,mc4],[
                     ("accuracy","Accuracy"),("precision","Precision"),("recall","Recall"),("f1","F1")]):
                     col.metric(lbl, f"{metrics.get(k,0):.1%}")
 
             if i == 10 and not metrics.empty:
-                st.markdown("**ðŸ“Š Live Evaluation Metrics**")
+                st.markdown("**Live Evaluation Metrics**")
                 st.dataframe(pd.DataFrame({
                     "Metric":  ["Accuracy","Precision","Recall","F1","CV F1"],
                     "Value":   [f"{metrics.get(k,0):.4f}" for k in ["accuracy","precision","recall","f1","cv_f1"]],
@@ -1181,7 +1181,7 @@ with tab_workflow:
                 }), use_container_width=True, hide_index=True)
 
             if i == 11:
-                st.markdown("**ðŸ“Š Live Feature Importances + SHAP (see SHAP tab for full details)**")
+                st.markdown("**Live Feature Importances + SHAP (see SHAP tab for full details)**")
                 try:
                     rf_clf2 = model.named_steps.get("clf") or model.named_steps.get("classifier")
                     if hasattr(rf_clf2, "feature_importances_"):
@@ -1194,24 +1194,24 @@ with tab_workflow:
                     pass
 
             if i == 12:
-                st.markdown("**ðŸ“Š Risk Banding Rules**")
+                st.markdown("**Risk Banding Rules**")
                 st.dataframe(pd.DataFrame({
-                    "Band":      ["ðŸ”´ IMMEDIATE","ðŸŸ¡ 48-HOUR","ðŸŸ¢ NORMAL"],
-                    "Threshold": ["â‰¥ 50%","30â€“49%","< 30%"],
+                    "Band":      ["IMMEDIATE","48-HOUR","NORMAL"],
+                    "Threshold": [">= 50%","30-49%","< 30%"],
                     "Action":    ["Stop machine, trigger alert now",
                                   "Schedule inspection within 48 h",
                                   "Continue normal operation"],
                 }), use_container_width=True, hide_index=True)
 
             if i == 13:
-                st.markdown("**ðŸ“‚ Saved Artifacts**")
+                st.markdown("**Saved Artifacts**")
                 for art in ["best_model.joblib","feature_columns.joblib","metrics.json"]:
                     fp   = ARTIFACT_DIR / art
                     size = f"{fp.stat().st_size/1024:.1f} KB" if fp.exists() else "missing"
-                    st.markdown(f"- `artifacts/{art}` â€” {size}")
+                    st.markdown(f"- `artifacts/{art}` - {size}")
 
             if i == 15:
-                st.markdown("**ðŸ§ª Live Test Results**")
+                st.markdown("**Live Test Results**")
                 rows = []
                 for tname, vals in [
                     ("HIGH-STRESS", dict(machine_temperature=95,bearing_temperature=110,
@@ -1228,11 +1228,11 @@ with tab_workflow:
                     tp, tpb = predict_risk(model, tdf[feature_columns])
                     ok = (tname.startswith("HIGH") and tp==1) or (tname.startswith("STABLE") and tp==0)
                     rows.append({"Machine": tname, "Prediction": "HIGH RISK" if tp==1 else "STABLE",
-                                 "Probability": f"{tpb:.1%}", "Result": "âœ… Pass" if ok else "âš ï¸ Review"})
+                                 "Probability": f"{tpb:.1%}", "Result": "Pass" if ok else "Review"})
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
             if i == 16:
-                st.markdown("**ðŸŒ Deployment Details**")
+                st.markdown("**Deployment Details**")
                 st.markdown("""
                 - **Platform:** Streamlit Community Cloud (free tier)
                 - **Database:** Aiven MySQL (free tier, SSL auto-enabled)
@@ -1242,12 +1242,12 @@ with tab_workflow:
                 """)
 
             if i == 17:
-                st.markdown("**ðŸ“ˆ Estimated Productivity Impact**")
+                st.markdown("**Estimated Productivity Impact**")
                 st.dataframe(pd.DataFrame({
                     "Metric":        ["Failures prevented","Avg downtime cost","Inspection cost",
                                       "Est. annual saving","False alarm rate"],
-                    "Before ML":     ["â€”","â‚¹18,00,000/hr","â€”","â€”","~30%"],
-                    "After ML":      ["38% fewer","â‚¹18,00,000/hr","â‚¹25,000/visit","â‚¹68,00,000+","< 5%"],
+                    "Before ML":     ["-","Rs 18,00,000/hr","-","-","~30%"],
+                    "After ML":      ["38% fewer","Rs 18,00,000/hr","Rs 25,000/visit","Rs 68,00,000+","< 5%"],
                 }), use_container_width=True, hide_index=True)
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1266,18 +1266,18 @@ with tab_database:
                 try:
                     rec = fetch_recent_predictions(db_config, limit=25)
                     st.session_state["recent_predictions"] = rec
-                    st.success(f"Loaded {len(rec)} records âœ…")
+                    st.success(f"Loaded {len(rec)} records.")
                 except Exception as exc:
                     st.error(f"Could not load: {exc}")
 
         rec_df = st.session_state.get("recent_predictions")
         if rec_df is not None and not rec_df.empty:
             st.dataframe(rec_df, use_container_width=True, hide_index=True)
-            st.download_button("â¬‡ï¸ Download Records CSV",
+            st.download_button("Download Records CSV",
                                rec_df.to_csv(index=False).encode(),
                                "db_predictions.csv", "text/csv")
         elif rec_df is not None:
-            st.info("No records yet â€” save a prediction from Prediction Studio first.")
+            st.info("No records yet - save a prediction from Prediction Studio first.")
         else:
             st.info("Click Refresh after connecting.")
 
@@ -1289,13 +1289,13 @@ with tab_database:
 - **Port:** `{db_port}`
 - **User:** `{db_user}`
 - **Database:** `{db_name}`
-- **SSL:** {"âœ… Auto (Aiven)" if "aivencloud.com" in str(db_host) else "â¬œ Standard"}
+- **SSL:** {"Auto (Aiven)" if "aivencloud.com" in str(db_host) else "Standard"}
             """)
         else:
             st.info("Load Cloud DB Settings to see connection info.")
 
         st.markdown("**Tables**")
-        st.markdown("- `prediction_runs` â€” one row per save session\n- `machine_predictions` â€” one row per machine")
+        st.markdown("- `prediction_runs` - one row per save session\n- `machine_predictions` - one row per machine")
 
         sql_path = Path("sql") / "init_mysql.sql"
         if sql_path.exists():
