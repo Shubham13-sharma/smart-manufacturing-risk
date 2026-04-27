@@ -309,6 +309,8 @@ model           = joblib.load(MODEL_PATH)
 feature_columns = joblib.load(FEATURES_PATH)
 metrics         = (pd.Series(json.loads(METRICS_PATH.read_text(encoding="utf-8")))
                    if METRICS_PATH.exists() else pd.Series(dtype=float))
+if "dataset_machine_options" not in st.session_state:
+    st.session_state["dataset_machine_options"] = []
 
 # â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 with st.sidebar:
@@ -359,11 +361,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Prediction Source")
-    dataset_machine_available = (
-        dataset_df is not None
-        and "machine_label" in scored_df.columns
-        and not scored_df.empty
-    )
+    dataset_machine_options = st.session_state.get("dataset_machine_options", [])
+    dataset_machine_available = len(dataset_machine_options) > 0
     if dataset_machine_available:
         prediction_source = st.radio(
             "Choose how to score the machine",
@@ -376,59 +375,21 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Single Machine Demo")
-    selected_dataset_machine = None
     if prediction_source == "Loaded dataset machine" and dataset_machine_available:
-        dataset_machine_options = (
-            scored_df["machine_label"].fillna("Unknown").astype(str).drop_duplicates().tolist()
-        )
-        selected_dataset_machine = st.selectbox(
+        machine_label = st.selectbox(
             "Choose machine from loaded dataset",
             dataset_machine_options,
             key="sidebar_selected_dataset_machine",
         )
-        selected_row = scored_df.loc[
-            scored_df["machine_label"].fillna("Unknown").astype(str) == selected_dataset_machine
-        ].iloc[0]
-        machine_label = selected_dataset_machine
-        machine_temperature = float(selected_row["machine_temperature"])
-        bearing_temperature = float(selected_row["bearing_temperature"])
-        vibration_level = float(selected_row["vibration_level"])
-        pressure = float(selected_row["pressure"])
-        runtime_hours = int(selected_row["runtime_hours"])
-        load_percentage = float(selected_row["load_percentage"])
-        maintenance_delay_days = int(selected_row["maintenance_delay_days"])
-        error_log_count = int(selected_row["error_log_count"])
-        st.caption("The current prediction, SHAP view, and save action now use this selected dataset machine.")
-        st.dataframe(
-            pd.DataFrame(
-                {
-                    "Field": [
-                        "Machine label",
-                        "Machine temperature (C)",
-                        "Bearing temperature (C)",
-                        "Vibration level",
-                        "Pressure",
-                        "Runtime hours",
-                        "Load percentage",
-                        "Maintenance delay (days)",
-                        "Error log count",
-                    ],
-                    "Value": [
-                        machine_label,
-                        machine_temperature,
-                        bearing_temperature,
-                        vibration_level,
-                        pressure,
-                        runtime_hours,
-                        load_percentage,
-                        maintenance_delay_days,
-                        error_log_count,
-                    ],
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.caption("The current prediction, SHAP view, and save action use this selected dataset machine.")
+        machine_temperature = 78.0
+        bearing_temperature = 82.0
+        vibration_level = 4.5
+        pressure = 140.0
+        runtime_hours = 2400
+        load_percentage = 72.0
+        maintenance_delay_days = 15
+        error_log_count = 2
         run_prediction = st.button("Use Selected Machine", use_container_width=True)
     else:
         machine_label = st.text_input("Machine label", value="CNC-17")
@@ -462,27 +423,7 @@ if "latest_prediction" not in st.session_state:
         latest_input_df=input_df.copy(),
         latest_machine_label=machine_label,
     )
-
-if prediction_source == "Loaded dataset machine" and dataset_machine_available:
-    current_scored_row = scored_df.loc[
-        scored_df["machine_label"].fillna("Unknown").astype(str) == machine_label
-    ].iloc[0]
-    dataset_input_df = pd.DataFrame([current_scored_row[feature_columns].to_dict()])
-    dataset_prediction = int(current_scored_row["predicted_risk"])
-    dataset_probability = float(current_scored_row["risk_probability"])
-    if (
-        run_prediction
-        or st.session_state.get("latest_machine_label") != machine_label
-        or st.session_state.get("latest_prediction_source") != "Loaded dataset machine"
-    ):
-        st.session_state.update(
-            latest_prediction=dataset_prediction,
-            latest_probability=dataset_probability,
-            latest_input_df=dataset_input_df.copy(),
-            latest_machine_label=machine_label,
-            latest_prediction_source="Loaded dataset machine",
-        )
-else:
+if prediction_source != "Loaded dataset machine":
     if run_prediction or st.session_state.get("latest_prediction_source") != "Manual machine":
         _p, _pb = predict_risk(model, input_df[feature_columns], threshold=risk_threshold)
         st.session_state.update(
@@ -549,9 +490,34 @@ except ValueError as exc:
 if dataset_df is not None:
     scored_df   = add_prediction_scores(dataset_df, model)
     source_name = uploaded_file.name if uploaded_file is not None else SAMPLE_DATASET_PATH.name
+    if "machine_label" in scored_df.columns:
+        st.session_state["dataset_machine_options"] = (
+            scored_df["machine_label"].fillna("Unknown").astype(str).drop_duplicates().tolist()
+        )
 else:
     scored_df   = add_prediction_scores(display_input_df.assign(downtime_risk=prediction), model)
     source_name = "single_machine_demo"
+    st.session_state["dataset_machine_options"] = []
+
+if (
+    prediction_source == "Loaded dataset machine"
+    and not scored_df.empty
+    and "machine_label" in scored_df.columns
+):
+    machine_label = st.session_state.get("sidebar_selected_dataset_machine", machine_label)
+    current_scored_row = scored_df.loc[
+        scored_df["machine_label"].fillna("Unknown").astype(str) == machine_label
+    ]
+    if not current_scored_row.empty:
+        selected_machine_row = current_scored_row.iloc[0]
+        dataset_input_df = pd.DataFrame([selected_machine_row[feature_columns].to_dict()])
+        st.session_state.update(
+            latest_prediction=int(selected_machine_row["predicted_risk"]),
+            latest_probability=float(selected_machine_row["risk_probability"]),
+            latest_input_df=dataset_input_df.copy(),
+            latest_machine_label=machine_label,
+            latest_prediction_source="Loaded dataset machine",
+        )
 
 kpis = build_kpi_frame(scored_df)
 
