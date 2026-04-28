@@ -67,6 +67,50 @@ def top_risk_machines_chart(scored_df: pd.DataFrame):
     return fig
 
 
+def selected_machine_risk_chart(scored_df: pd.DataFrame, machine_label: str, alert_threshold: float = 0.5):
+    selected_rows = scored_df[
+        scored_df["machine_label"].fillna("Unknown").astype(str) == str(machine_label)
+    ]
+    selected_probability = (
+        float(selected_rows.iloc[0]["risk_probability"])
+        if not selected_rows.empty
+        else 0.0
+    )
+    chart_df = pd.DataFrame(
+        {
+            "Metric": [
+                f"Selected: {machine_label}",
+                "Fleet average",
+                "Alert threshold",
+            ],
+            "risk_probability": [
+                selected_probability,
+                float(scored_df["risk_probability"].mean()) if len(scored_df) else 0.0,
+                float(alert_threshold),
+            ],
+        }
+    )
+    fig = px.bar(
+        chart_df,
+        x="risk_probability",
+        y="Metric",
+        orientation="h",
+        text="risk_probability",
+        title=f"Selected Machine Risk - {machine_label}",
+        color="Metric",
+        color_discrete_sequence=["#d1495b", "#2a9d8f", "#edae49"],
+    )
+    fig.update_traces(texttemplate="%{x:.0%}", textposition="outside")
+    fig.update_layout(
+        template="plotly_white",
+        showlegend=False,
+        xaxis_tickformat=".0%",
+        xaxis_range=[0, 1],
+        margin=dict(l=10, r=35, t=55, b=10),
+    )
+    return fig
+
+
 def trend_chart(scored_df: pd.DataFrame):
     trend_df = scored_df.reset_index().rename(columns={"index": "record"})
     trend_df["rolling_average"] = trend_df["risk_probability"].rolling(30, min_periods=1).mean()
@@ -86,4 +130,3 @@ def feature_correlation_chart(scored_df: pd.DataFrame):
     )
     fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=55, b=10))
     return fig
-

@@ -29,6 +29,7 @@ from src.downtime_risk.visuals import (
     build_kpi_frame,
     feature_correlation_chart,
     risk_distribution_chart,
+    selected_machine_risk_chart,
     top_risk_machines_chart,
     trend_chart,
 )
@@ -533,9 +534,13 @@ if (
     if not current_scored_row.empty:
         selected_machine_row = current_scored_row.iloc[0]
         dataset_input_df = pd.DataFrame([selected_machine_row[feature_columns].to_dict()])
+        prediction = int(selected_machine_row["predicted_risk"])
+        probability = float(selected_machine_row["risk_probability"])
+        display_input_df = dataset_input_df.copy()
+        recommendation = str(selected_machine_row.get("recommendation", recommendation))
         st.session_state.update(
-            latest_prediction=int(selected_machine_row["predicted_risk"]),
-            latest_probability=float(selected_machine_row["risk_probability"]),
+            latest_prediction=prediction,
+            latest_probability=probability,
             latest_input_df=dataset_input_df.copy(),
             latest_machine_label=machine_label,
             latest_prediction_source="Loaded dataset machine",
@@ -749,7 +754,13 @@ with tab_overview:
     with left:
         st.plotly_chart(risk_distribution_chart(scored_df), use_container_width=True)
     with right:
-        st.plotly_chart(top_risk_machines_chart(scored_df), use_container_width=True)
+        if prediction_source == "Loaded dataset machine" and machine_label in set(scored_df["machine_label"].astype(str)):
+            st.plotly_chart(
+                selected_machine_risk_chart(scored_df, machine_label, risk_threshold),
+                use_container_width=True,
+            )
+        else:
+            st.plotly_chart(top_risk_machines_chart(scored_df), use_container_width=True)
 
     if not metrics.empty:
         st.subheader("Model Performance")
