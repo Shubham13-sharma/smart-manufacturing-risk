@@ -61,6 +61,30 @@ def _ensure_varchar_width(cur, table_name: str, column_name: str, width: int) ->
         pass
 
 
+def _ensure_timestamp_default(cur, table_name: str, column_name: str) -> None:
+    if column_name not in _get_table_columns(cur, table_name):
+        cur.execute(
+            f"ALTER TABLE {table_name} "
+            f"ADD COLUMN {column_name} DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        )
+        return
+
+    for definition in (
+        "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    ):
+        try:
+            cur.execute(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {definition}")
+            return
+        except Exception:
+            continue
+
+    try:
+        cur.execute(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} SET DEFAULT CURRENT_TIMESTAMP")
+    except Exception:
+        pass
+
+
 def _get_column_info(cur, table_name: str, column_name: str) -> dict[str, str]:
     cur.execute(f"SHOW COLUMNS FROM {table_name} LIKE %s", (column_name,))
     row = cur.fetchone()
@@ -125,8 +149,8 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "prediction_runs", "record_count", "INT NOT NULL DEFAULT 0")
     _ensure_column(cur, "prediction_runs", "average_risk", "DOUBLE")
     _ensure_column(cur, "prediction_runs", "high_risk_count", "INT NOT NULL DEFAULT 0")
-    _ensure_column(cur, "prediction_runs", "saved_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
-    _ensure_column(cur, "prediction_runs", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _ensure_timestamp_default(cur, "prediction_runs", "saved_at")
+    _ensure_timestamp_default(cur, "prediction_runs", "created_at")
     _ensure_varchar_width(cur, "prediction_runs", "run_id", 64)
     _ensure_varchar_width(cur, "prediction_runs", "source_name", 255)
     cur.execute(
@@ -162,18 +186,9 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "machine_predictions", "load_percentage", "DOUBLE")
     _ensure_column(cur, "machine_predictions", "maintenance_delay_days", "DOUBLE")
     _ensure_column(cur, "machine_predictions", "error_log_count", "DOUBLE")
-    _ensure_column(cur, "machine_predictions", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _ensure_timestamp_default(cur, "machine_predictions", "created_at")
     _ensure_varchar_width(cur, "machine_predictions", "run_id", 64)
     _ensure_varchar_width(cur, "machine_predictions", "machine_label", 255)
-    for table, column in [
-        ("prediction_runs", "saved_at"),
-        ("prediction_runs", "created_at"),
-        ("machine_predictions", "created_at"),
-    ]:
-        try:
-            cur.execute(f"ALTER TABLE {table} MODIFY {column} TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
-        except Exception:
-            pass
     conn.commit()
     cur.close()
     conn.close()
