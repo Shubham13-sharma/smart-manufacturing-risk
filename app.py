@@ -515,7 +515,6 @@ if dataset_df is not None:
         machine_options = machine_options_from_dataset(scored_df)
         if st.session_state.get("dataset_machine_options", []) != machine_options:
             st.session_state["dataset_machine_options"] = machine_options
-            st.rerun()
 else:
     scored_df   = add_prediction_scores(display_input_df.assign(downtime_risk=prediction), model)
     source_name = "single_machine_demo"
