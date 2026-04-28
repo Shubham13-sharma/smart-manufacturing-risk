@@ -1,4 +1,5 @@
 ﻿from pathlib import Path
+import importlib
 import json
 import os
 
@@ -15,14 +16,7 @@ from src.downtime_risk.data import (
     read_flexible_csv,
     standardize_dataset_with_mapping,
 )
-from src.downtime_risk.database import (
-    DatabaseConfig,
-    fetch_recent_predictions,
-    initialize_tables,
-    save_batch_predictions,
-    save_single_prediction,
-    test_connection,
-)
+from src.downtime_risk import database as database_module
 from src.downtime_risk.predict import predict_risk
 from src.downtime_risk.visuals import (
     add_prediction_scores,
@@ -33,6 +27,14 @@ from src.downtime_risk.visuals import (
     top_risk_machines_chart,
     trend_chart,
 )
+
+database_module = importlib.reload(database_module)
+DatabaseConfig = database_module.DatabaseConfig
+fetch_recent_predictions = database_module.fetch_recent_predictions
+initialize_tables = database_module.initialize_tables
+save_batch_predictions = database_module.save_batch_predictions
+save_single_prediction = database_module.save_single_prediction
+test_connection = database_module.test_connection
 
 # â”€â”€ Paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ARTIFACT_DIR         = Path("artifacts")
