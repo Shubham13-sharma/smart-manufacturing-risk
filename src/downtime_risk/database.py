@@ -178,11 +178,12 @@ def save_single_prediction(
     return save_batch_predictions(config, df, "single_machine_demo")
 
 
-def save_batch_predictions(config: DatabaseConfig, scored_df: pd.DataFrame, source_name: str) -> str:
-    initialize_tables(config)
-    conn = _connect(config)
-    cur = conn.cursor()
-    run_id_mode = _run_id_mode(cur)
+def _insert_prediction_batch(
+    cur,
+    scored_df: pd.DataFrame,
+    source_name: str,
+    run_id_mode: str,
+) -> str:
     run_id = _make_run_id(run_id_mode)
     run_summary_values = (
         source_name,
@@ -237,10 +238,39 @@ def save_batch_predictions(config: DatabaseConfig, scored_df: pd.DataFrame, sour
         )
     if rows:
         cur.executemany(insert_sql, rows)
-    conn.commit()
-    cur.close()
-    conn.close()
     return str(run_id)
+
+
+def _is_run_id_schema_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "run_id" in message and any(
+        text in message
+        for text in (
+            "incorrect integer value",
+            "data truncated",
+            "out of range",
+            "cannot be null",
+        )
+    )
+
+
+def save_batch_predictions(config: DatabaseConfig, scored_df: pd.DataFrame, source_name: str) -> str:
+    initialize_tables(config)
+    conn = _connect(config)
+    cur = conn.cursor()
+    try:
+        try:
+            run_id = _insert_prediction_batch(cur, scored_df, source_name, _run_id_mode(cur))
+        except Exception as exc:
+            conn.rollback()
+            if not _is_run_id_schema_error(exc):
+                raise
+            run_id = _insert_prediction_batch(cur, scored_df, source_name, "manual_integer")
+        conn.commit()
+        return str(run_id)
+    finally:
+        cur.close()
+        conn.close()
 
 
 def fetch_recent_predictions(config: DatabaseConfig, limit: int = 25) -> pd.DataFrame:
