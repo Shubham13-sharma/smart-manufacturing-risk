@@ -95,6 +95,18 @@ def _make_run_id(mode: str) -> str | int | None:
     return None
 
 
+def _insert_dynamic(cur, table_name: str, values_by_column: dict[str, object]) -> None:
+    available_columns = _get_table_columns(cur, table_name)
+    columns = [column for column in values_by_column if column in available_columns]
+    placeholders = ", ".join(["%s"] * len(columns))
+    column_sql = ", ".join(columns)
+    values = tuple(values_by_column[column] for column in columns)
+    cur.execute(
+        f"INSERT INTO {table_name} ({column_sql}) VALUES ({placeholders})",
+        values,
+    )
+
+
 def initialize_tables(config: DatabaseConfig) -> None:
     conn = _connect(config)
     cur = conn.cursor()
@@ -114,6 +126,7 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "prediction_runs", "average_risk", "DOUBLE")
     _ensure_column(cur, "prediction_runs", "high_risk_count", "INT NOT NULL DEFAULT 0")
     _ensure_column(cur, "prediction_runs", "saved_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _ensure_column(cur, "prediction_runs", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
     _ensure_varchar_width(cur, "prediction_runs", "run_id", 64)
     _ensure_varchar_width(cur, "prediction_runs", "source_name", 255)
     cur.execute(
@@ -152,7 +165,11 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "machine_predictions", "created_at", "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
     _ensure_varchar_width(cur, "machine_predictions", "run_id", 64)
     _ensure_varchar_width(cur, "machine_predictions", "machine_label", 255)
-    for table, column in [("prediction_runs", "saved_at"), ("machine_predictions", "created_at")]:
+    for table, column in [
+        ("prediction_runs", "saved_at"),
+        ("prediction_runs", "created_at"),
+        ("machine_predictions", "created_at"),
+    ]:
         try:
             cur.execute(f"ALTER TABLE {table} MODIFY {column} TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
         except Exception:
@@ -191,51 +208,68 @@ def _insert_prediction_batch(
         float(scored_df["risk_probability"].mean()) if len(scored_df) else 0.0,
         int(scored_df["predicted_risk"].sum()) if len(scored_df) else 0,
     )
+    now = datetime.now()
+    run_record = {
+        "source_name": run_summary_values[0],
+        "record_count": run_summary_values[1],
+        "total_records": run_summary_values[1],
+        "average_risk": run_summary_values[2],
+        "high_risk_count": run_summary_values[3],
+        "high_risk": run_summary_values[3],
+        "created_at": now,
+        "saved_at": now,
+    }
     if run_id_mode == "auto_integer":
-        cur.execute(
-            """
-            INSERT INTO prediction_runs
-            (source_name, record_count, average_risk, high_risk_count)
-            VALUES (%s, %s, %s, %s)
-            """,
-            run_summary_values,
-        )
+        _insert_dynamic(cur, "prediction_runs", run_record)
         run_id = cur.lastrowid
     else:
-        cur.execute(
-            """
-            INSERT INTO prediction_runs
-            (run_id, source_name, record_count, average_risk, high_risk_count)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (run_id, *run_summary_values),
-        )
-    insert_sql = """
-        INSERT INTO machine_predictions
-        (run_id, machine_label, predicted_risk, risk_probability, recommendation,
-         machine_temperature, bearing_temperature, vibration_level, pressure,
-         runtime_hours, load_percentage, maintenance_delay_days, error_log_count)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
+        run_record["run_id"] = run_id
+        _insert_dynamic(cur, "prediction_runs", run_record)
+
+    machine_columns = _get_table_columns(cur, "machine_predictions")
+    machine_insert_columns = [
+        column
+        for column in [
+            "run_id",
+            "machine_label",
+            "predicted_risk",
+            "risk_probability",
+            "recommendation",
+            "machine_temperature",
+            "bearing_temperature",
+            "vibration_level",
+            "pressure",
+            "runtime_hours",
+            "load_percentage",
+            "maintenance_delay_days",
+            "error_log_count",
+            "created_at",
+        ]
+        if column in machine_columns
+    ]
+    insert_sql = (
+        f"INSERT INTO machine_predictions ({', '.join(machine_insert_columns)}) "
+        f"VALUES ({', '.join(['%s'] * len(machine_insert_columns))})"
+    )
     rows = []
     for idx, row in scored_df.iterrows():
-        rows.append(
-            (
-                run_id,
-                str(row.get("machine_label", f"MCH-{idx+1:04d}")),
-                int(row.get("predicted_risk", 0)),
-                float(row.get("risk_probability", 0.0)),
-                str(row.get("recommendation", "")),
-                float(row.get("machine_temperature", 0.0)),
-                float(row.get("bearing_temperature", 0.0)),
-                float(row.get("vibration_level", 0.0)),
-                float(row.get("pressure", 0.0)),
-                float(row.get("runtime_hours", 0.0)),
-                float(row.get("load_percentage", 0.0)),
-                float(row.get("maintenance_delay_days", 0.0)),
-                float(row.get("error_log_count", 0.0)),
-            )
-        )
+        machine_record = {
+            "run_id": run_id,
+            "machine_label": str(row.get("machine_label", f"MCH-{idx+1:04d}")),
+            "predicted_risk": int(row.get("predicted_risk", 0)),
+            "risk_probability": float(row.get("risk_probability", 0.0)),
+            "recommendation": str(row.get("recommendation", "")),
+            "machine_temperature": float(row.get("machine_temperature", 0.0)),
+            "bearing_temperature": float(row.get("bearing_temperature", 0.0)),
+            "vibration_level": float(row.get("vibration_level", 0.0)),
+            "pressure": float(row.get("pressure", 0.0)),
+            "runtime_hours": float(row.get("runtime_hours", 0.0)),
+            "load_percentage": float(row.get("load_percentage", 0.0)),
+            "maintenance_delay_days": float(row.get("maintenance_delay_days", 0.0)),
+            "error_log_count": float(row.get("error_log_count", 0.0)),
+            "created_at": now,
+        }
+        rows.append(tuple(machine_record[column] for column in machine_insert_columns))
     if rows:
         cur.executemany(insert_sql, rows)
     return str(run_id)
