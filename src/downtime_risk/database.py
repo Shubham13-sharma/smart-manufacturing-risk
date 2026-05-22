@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+import sqlite3
 import uuid
 
 import pandas as pd
@@ -9,14 +11,27 @@ import pandas as pd
 
 @dataclass
 class DatabaseConfig:
-    host: str
-    port: int
-    user: str
-    password: str
-    database: str
+    host: str = ""
+    port: int = 3306
+    user: str = ""
+    password: str = ""
+    database: str = ""
+    backend: str = "sqlite"
+    sqlite_path: str = "data/predictions.sqlite3"
+
+
+def _is_sqlite(config: DatabaseConfig) -> bool:
+    return str(config.backend).strip().lower() == "sqlite"
 
 
 def _connect(config: DatabaseConfig):
+    if _is_sqlite(config):
+        db_path = Path(config.sqlite_path or "data/predictions.sqlite3")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
     import mysql.connector
 
     kwargs = {
@@ -35,7 +50,12 @@ def _connect(config: DatabaseConfig):
 def test_connection(config: DatabaseConfig) -> tuple[bool, str]:
     try:
         conn = _connect(config)
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
         conn.close()
+        if _is_sqlite(config):
+            return True, f"Connected to free SQLite database: {config.sqlite_path}"
         return True, "Connected to MySQL successfully."
     except Exception as exc:
         return False, str(exc)
@@ -54,9 +74,7 @@ def _ensure_column(cur, table_name: str, column_name: str, definition: str) -> N
 
 def _ensure_varchar_width(cur, table_name: str, column_name: str, width: int) -> None:
     try:
-        cur.execute(
-            f"ALTER TABLE {table_name} MODIFY {column_name} VARCHAR({int(width)})"
-        )
+        cur.execute(f"ALTER TABLE {table_name} MODIFY {column_name} VARCHAR({int(width)})")
     except Exception:
         pass
 
@@ -131,7 +149,58 @@ def _insert_dynamic(cur, table_name: str, values_by_column: dict[str, object]) -
     )
 
 
+def _initialize_sqlite_tables(config: DatabaseConfig) -> None:
+    conn = _connect(config)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS prediction_runs (
+            run_id TEXT PRIMARY KEY,
+            source_name TEXT,
+            total_records INTEGER NOT NULL DEFAULT 0,
+            record_count INTEGER NOT NULL DEFAULT 0,
+            average_risk REAL,
+            high_risk INTEGER NOT NULL DEFAULT 0,
+            high_risk_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            saved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS machine_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT,
+            machine_label TEXT,
+            machine_temperature REAL,
+            bearing_temperature REAL,
+            vibration_level REAL,
+            pressure REAL,
+            runtime_hours REAL,
+            load_percentage REAL,
+            maintenance_delay_days REAL,
+            error_log_count REAL,
+            predicted_risk INTEGER DEFAULT 0,
+            risk_probability REAL,
+            recommendation TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (run_id) REFERENCES prediction_runs(run_id) ON DELETE CASCADE
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_machine_predictions_run_id ON machine_predictions(run_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_machine_predictions_created_at ON machine_predictions(created_at)")
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def initialize_tables(config: DatabaseConfig) -> None:
+    if _is_sqlite(config):
+        _initialize_sqlite_tables(config)
+        return
+
     conn = _connect(config)
     cur = conn.cursor()
     cur.execute(
@@ -149,6 +218,8 @@ def initialize_tables(config: DatabaseConfig) -> None:
     _ensure_column(cur, "prediction_runs", "record_count", "INT NOT NULL DEFAULT 0")
     _ensure_column(cur, "prediction_runs", "average_risk", "DOUBLE")
     _ensure_column(cur, "prediction_runs", "high_risk_count", "INT NOT NULL DEFAULT 0")
+    _ensure_column(cur, "prediction_runs", "total_records", "INT NOT NULL DEFAULT 0")
+    _ensure_column(cur, "prediction_runs", "high_risk", "INT NOT NULL DEFAULT 0")
     _ensure_timestamp_default(cur, "prediction_runs", "saved_at")
     _ensure_timestamp_default(cur, "prediction_runs", "created_at")
     _ensure_varchar_width(cur, "prediction_runs", "run_id", 64)
@@ -290,6 +361,80 @@ def _insert_prediction_batch(
     return str(run_id)
 
 
+def _save_batch_sqlite(config: DatabaseConfig, scored_df: pd.DataFrame, source_name: str) -> str:
+    run_id = uuid.uuid4().hex
+    now = datetime.now().isoformat(timespec="seconds")
+    record_count = int(len(scored_df))
+    average_risk = float(scored_df["risk_probability"].mean()) if record_count else 0.0
+    high_risk_count = int(scored_df["predicted_risk"].sum()) if record_count else 0
+
+    conn = _connect(config)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO prediction_runs (
+                run_id, source_name, total_records, record_count,
+                average_risk, high_risk, high_risk_count, created_at, saved_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                source_name,
+                record_count,
+                record_count,
+                average_risk,
+                high_risk_count,
+                high_risk_count,
+                now,
+                now,
+            ),
+        )
+
+        rows = []
+        for idx, row in scored_df.iterrows():
+            rows.append(
+                (
+                    run_id,
+                    str(row.get("machine_label", f"MCH-{idx+1:04d}")),
+                    float(row.get("machine_temperature", 0.0)),
+                    float(row.get("bearing_temperature", 0.0)),
+                    float(row.get("vibration_level", 0.0)),
+                    float(row.get("pressure", 0.0)),
+                    float(row.get("runtime_hours", 0.0)),
+                    float(row.get("load_percentage", 0.0)),
+                    float(row.get("maintenance_delay_days", 0.0)),
+                    float(row.get("error_log_count", 0.0)),
+                    int(row.get("predicted_risk", 0)),
+                    float(row.get("risk_probability", 0.0)),
+                    str(row.get("recommendation", "")),
+                    now,
+                )
+            )
+        if rows:
+            cur.executemany(
+                """
+                INSERT INTO machine_predictions (
+                    run_id, machine_label, machine_temperature, bearing_temperature,
+                    vibration_level, pressure, runtime_hours, load_percentage,
+                    maintenance_delay_days, error_log_count, predicted_risk,
+                    risk_probability, recommendation, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        conn.commit()
+        return run_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 def _is_run_id_schema_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "run_id" in message and any(
@@ -305,6 +450,9 @@ def _is_run_id_schema_error(exc: Exception) -> bool:
 
 def save_batch_predictions(config: DatabaseConfig, scored_df: pd.DataFrame, source_name: str) -> str:
     initialize_tables(config)
+    if _is_sqlite(config):
+        return _save_batch_sqlite(config, scored_df, source_name)
+
     conn = _connect(config)
     cur = conn.cursor()
     try:
@@ -332,8 +480,11 @@ def fetch_recent_predictions(config: DatabaseConfig, limit: int = 25) -> pd.Data
                created_at
         FROM machine_predictions
         ORDER BY created_at DESC
-        LIMIT %s
+        LIMIT ?
     """
-    df = pd.read_sql(query, conn, params=(int(limit),))
+    params = (int(limit),)
+    if not _is_sqlite(config):
+        query = query.replace("LIMIT ?", "LIMIT %s")
+    df = pd.read_sql(query, conn, params=params)
     conn.close()
     return df

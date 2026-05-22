@@ -4,6 +4,9 @@ venv/
 *.pyc
 *.pyo
 *.pyd
+*.sqlite
+*.sqlite3
+*.db
 .DS_Store
 .streamlit/secrets.toml
 data/*

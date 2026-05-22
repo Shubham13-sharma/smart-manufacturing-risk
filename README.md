@@ -1,6 +1,6 @@
 # Smart Manufacturing Downtime Risk Classification
 
-This project predicts machine downtime risk before a failure happens. It is designed as an interview-ready Industry 4.0 mini-project with an end-to-end ML pipeline, real dataset ingestion, a presentation-ready dashboard, and MySQL-backed prediction storage.
+This project predicts machine downtime risk before a failure happens. It is designed as an interview-ready Industry 4.0 mini-project with an end-to-end ML pipeline, real dataset ingestion, a presentation-ready dashboard, free SQLite storage, and optional MySQL-backed prediction storage.
 
 ## Problem Statement
 
@@ -131,12 +131,33 @@ The Streamlit dashboard now includes:
 - MySQL database console for saving predictions
 - batch save option for scored datasets
 
-## MySQL Workbench Integration
+## Free SQLite Storage
 
-This project can save predictions into MySQL so you can show both frontend and backend integration during your internship review.
+The app now supports SQLite as the default free database. SQLite is built into Python, so it does not need Aiven credits, a username, a password, or a remote server.
+
+To move away from Aiven, keep `Free SQLite` selected in the sidebar. If you deployed with old Aiven secrets, remove the `[mysql]` block from Streamlit Cloud secrets or replace it with:
+
+```toml
+[database]
+backend = "sqlite"
+sqlite_path = "data/predictions.sqlite3"
+```
+
+Inside the Streamlit sidebar:
+
+- choose `Free SQLite`
+- keep the file path as `data/predictions.sqlite3`
+- click `Test DB`
+- click `Init Tables`
+- save predictions from `Prediction Studio`
+
+For local project demo and faculty submission, this is the easiest free database option.
+
+## MySQL Workbench Integration
 
 Important:
 
+- MySQL is optional now
 - for local testing, you can still use your own MySQL server
 - for deployment on Streamlit Community Cloud, use a remote MySQL host
 - do not use `localhost` after deployment because it points to the cloud container, not your laptop
@@ -186,7 +207,7 @@ Inside `Prediction Studio`:
 
 ## Remote MySQL For Deployment
 
-For Streamlit Community Cloud, store your database credentials in secrets instead of hardcoding them.
+Remote MySQL is optional. Use this section only if you later choose a remote MySQL provider again. For Streamlit Community Cloud, store your database credentials in secrets instead of hardcoding them.
 
 Create a local file based on:
 

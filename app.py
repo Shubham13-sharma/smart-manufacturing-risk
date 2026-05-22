@@ -116,7 +116,7 @@ STEP_DETAILS = {
          "formula":"SHAP value phi_i = weighted average of marginal contributions across all feature subsets"},
     12: {"what":"Convert model output into actionable maintenance schedules: >=50% risk -> immediate; 30-50% -> 48h; <30% -> normal cycle.",
          "why":"A prediction with no action plan has zero business value. Risk banding maps model output directly to maintenance team workflows.",
-         "output":"Risk-banded recommendation engine integrated into the dashboard and stored in MySQL.",
+         "output":"Risk-banded recommendation engine integrated into the dashboard and stored in the selected database.",
          "formula":"risk >= 0.50 -> Immediate\n0.30 <= risk < 0.50 -> 48h\nrisk < 0.30 -> Normal"},
     13: {"what":"Serialize the best pipeline, feature column list, and evaluation metrics using joblib. Commit artifacts to Git for cloud deployment.",
          "why":"Joblib efficiently serializes sklearn Pipelines including the fitted scaler and imputer. Committing artifacts means Streamlit Cloud loads instantly.",
@@ -130,9 +130,9 @@ STEP_DETAILS = {
          "why":"Unit testing the prediction function catches threshold bugs and ensures the model generalises beyond the training distribution.",
          "output":"Verified: high-stress -> prediction=1 (~76%). Stable -> prediction=0 (~0.2%).",
          "formula":None},
-    16: {"what":"Deploy the app on Streamlit Community Cloud connected to Aiven-managed MySQL for live prediction storage.",
-         "why":"Cloud deployment demonstrates end-to-end engineering: model training -> inference -> persistent storage - all production-grade.",
-         "output":"Live URL. MySQL on Aiven stores every prediction with timestamp and recommendation.",
+    16: {"what":"Deploy the app on Streamlit Community Cloud with free SQLite storage by default and optional remote MySQL support.",
+         "why":"Cloud deployment demonstrates end-to-end engineering: model training -> inference -> storage - all production-grade.",
+         "output":"Live URL. SQLite/MySQL stores every prediction with timestamp and recommendation.",
          "formula":None},
     17: {"what":"Quantify the productivity impact: reduction in unplanned downtime, maintenance cost savings, and false-alarm rate.",
          "why":"Stakeholders need business outcomes, not just model metrics. Translating F1=0.65 into '38% reduction in missed failures' is the final deliverable.",
@@ -259,12 +259,12 @@ st.markdown("""
     <span class="badge-pill">Industry 4.0</span>
     <span class="badge-pill">17-Step Workflow</span>
     <span class="badge-pill">ML + SHAP</span>
-    <span class="badge-pill">Live Aiven MySQL</span>
+    <span class="badge-pill">Free SQLite Storage</span>
     <span class="badge-pill">Explainable AI</span>
   </div>
   <h1>Smart Manufacturing Downtime Risk Command Center</h1>
   <p>Monitor machine health, score downtime risk, explain predictions with SHAP,
-     and store records in Aiven MySQL - complete end-to-end ML project for HCL internship.</p>
+     and store records in a free database - complete end-to-end ML project for HCL internship.</p>
 </section>
 """, unsafe_allow_html=True)
 
@@ -272,20 +272,26 @@ st.markdown("""
 def get_default_db_settings() -> dict:
     secrets_db = {}
     try:
+        if "database" in st.secrets:
+            secrets_db = dict(st.secrets["database"])
         if "mysql" in st.secrets:
-            secrets_db = dict(st.secrets["mysql"])
+            secrets_db = {**dict(st.secrets["mysql"]), **secrets_db}
     except Exception:
         pass
     return {
+        "backend":  secrets_db.get("backend")  or os.getenv("DB_BACKEND", "sqlite"),
         "host":     secrets_db.get("host")     or os.getenv("MYSQL_HOST", ""),
         "port":     int(secrets_db.get("port") or os.getenv("MYSQL_PORT", 3306)),
         "user":     secrets_db.get("user")     or os.getenv("MYSQL_USER", ""),
         "password": secrets_db.get("password") or os.getenv("MYSQL_PASSWORD", ""),
         "database": secrets_db.get("database") or os.getenv("MYSQL_DATABASE", "defaultdb"),
+        "sqlite_path": secrets_db.get("sqlite_path") or os.getenv("SQLITE_PATH", "data/predictions.sqlite3"),
     }
 
 default_db_settings = get_default_db_settings()
-for _k, _v in [("db_host", default_db_settings["host"]),
+for _k, _v in [("db_backend", "Free SQLite"),
+                ("sqlite_path", default_db_settings["sqlite_path"]),
+                ("db_host", default_db_settings["host"]),
                 ("db_port", default_db_settings["port"]),
                 ("db_user", default_db_settings["user"]),
                 ("db_password", default_db_settings["password"]),
@@ -339,42 +345,72 @@ with st.sidebar:
     risk_threshold = st.slider("Alert threshold", 0.1, 0.9, 0.5)
 
     st.markdown("---")
-    st.subheader("MySQL Storage (Aiven)")
-    st.caption("Use Load Cloud DB Settings to auto-fill from secrets.")
-    hc, rc = st.columns(2)
-    with hc:
-        if st.button("Load Cloud DB Settings", use_container_width=True):
-            for k, v in default_db_settings.items():
-                st.session_state[{"host":"db_host","port":"db_port","user":"db_user",
-                                   "password":"db_password","database":"db_name"}[k]] = v
-    with rc:
-        if st.button("Clear DB Fields", use_container_width=True):
-            for k,v in [("db_host",""),("db_port",3306),("db_user",""),("db_password",""),("db_name","defaultdb")]:
-                st.session_state[k] = v
+    st.subheader("Prediction Storage")
+    st.caption("Use Free SQLite when Aiven credit is finished. It needs no username, password, or cloud credit.")
+    if st.session_state.get("db_backend") not in ["Free SQLite", "MySQL / Aiven"]:
+        st.session_state["db_backend"] = "Free SQLite"
+    db_backend_label = st.radio(
+        "Database type",
+        ["Free SQLite", "MySQL / Aiven"],
+        key="db_backend",
+    )
+    db_backend = "sqlite" if db_backend_label == "Free SQLite" else "mysql"
 
-    db_host     = st.text_input("Host",     key="db_host",     placeholder="xxx.aivencloud.com")
-    db_port     = st.number_input("Port",   min_value=1, max_value=65535, key="db_port")
-    db_user     = st.text_input("User",     key="db_user",     placeholder="avnadmin")
-    db_password = st.text_input("Password", key="db_password", type="password")
-    db_name     = st.text_input("Database", key="db_name",     placeholder="defaultdb")
-    db_config   = DatabaseConfig(host=db_host, port=int(db_port), user=db_user,
-                                 password=db_password, database=db_name)
+    if db_backend == "sqlite":
+        sqlite_path = st.text_input("SQLite file path", key="sqlite_path")
+        st.info("Free mode: predictions are saved in this local SQLite file.")
+        db_host = ""
+        db_port = 0
+        db_user = ""
+        db_password = ""
+        db_name = sqlite_path
+        db_ready = bool(sqlite_path)
+        db_storage_name = "Free SQLite"
+        db_config = DatabaseConfig(
+            backend="sqlite",
+            sqlite_path=sqlite_path,
+            database=sqlite_path,
+        )
+    else:
+        st.caption("Use this only if you have an active remote MySQL database.")
+        hc, rc = st.columns(2)
+        with hc:
+            if st.button("Load Cloud DB Settings", use_container_width=True):
+                for k, v in default_db_settings.items():
+                    if k in {"backend", "sqlite_path"}:
+                        continue
+                    st.session_state[{"host":"db_host","port":"db_port","user":"db_user",
+                                       "password":"db_password","database":"db_name"}[k]] = v
+        with rc:
+            if st.button("Clear DB Fields", use_container_width=True):
+                for k,v in [("db_host",""),("db_port",3306),("db_user",""),("db_password",""),("db_name","defaultdb")]:
+                    st.session_state[k] = v
+
+        db_host     = st.text_input("Host",     key="db_host",     placeholder="xxx.aivencloud.com")
+        db_port     = st.number_input("Port",   min_value=1, max_value=65535, key="db_port")
+        db_user     = st.text_input("User",     key="db_user",     placeholder="avnadmin")
+        db_password = st.text_input("Password", key="db_password", type="password")
+        db_name     = st.text_input("Database", key="db_name",     placeholder="defaultdb")
+        db_ready = all([db_host, db_user, db_password, db_name])
+        db_storage_name = "MySQL"
+        db_config   = DatabaseConfig(host=db_host, port=int(db_port), user=db_user,
+                                     password=db_password, database=db_name, backend="mysql")
     cc, sc = st.columns(2)
     with cc:
         if st.button("Test DB", use_container_width=True):
-            if not all([db_host, db_user, db_password, db_name]):
-                st.error("Fill in all DB fields.")
+            if not db_ready:
+                st.error("Fill in the database settings first.")
             else:
                 ok, msg = test_connection(db_config)
                 (st.success if ok else st.error)(msg)
     with sc:
         if st.button("Init Tables", use_container_width=True):
-            if not all([db_host, db_user, db_password, db_name]):
-                st.error("Fill in all DB fields.")
+            if not db_ready:
+                st.error("Fill in the database settings first.")
             else:
                 try:
                     initialize_tables(db_config)
-                    st.success("Tables ready.")
+                    st.success(f"{db_storage_name} tables ready.")
                 except Exception as exc:
                     st.error(f"Setup failed: {exc}")
 
@@ -716,7 +752,7 @@ with tab_overview:
     c1.markdown("""<div class="summary-card">
         <div class="summary-title">Project Deliverable</div>
         <div class="summary-value">Downtime Risk Model</div>
-        <p>End-to-end ML pipeline: data -> training -> live scoring -> SHAP explanations -> MySQL storage.</p>
+        <p>End-to-end ML pipeline: data -> training -> live scoring -> SHAP explanations -> database storage.</p>
     </div>""", unsafe_allow_html=True)
     c2.markdown("""<div class="summary-card">
         <div class="summary-title">ML Techniques</div>
@@ -731,7 +767,7 @@ with tab_overview:
         <span class="tech-pill">Python</span>
         <span class="tech-pill">scikit-learn</span>
         <span class="tech-pill">Streamlit</span>
-        <span class="tech-pill">MySQL (Aiven)</span>
+        <span class="tech-pill">SQLite / MySQL</span>
         <span class="tech-pill">Plotly</span>
         <span class="tech-pill">SHAP</span>
     </div>""", unsafe_allow_html=True)
@@ -817,23 +853,23 @@ with tab_predict:
         ac, sc2 = st.columns(2)
         with ac:
             if st.button("Save Current Prediction", use_container_width=True):
-                if not all([db_host, db_user, db_password, db_name]):
-                    st.error("Configure MySQL in the sidebar first.")
+                if not db_ready:
+                    st.error("Configure database storage in the sidebar first.")
                 else:
                     try:
                         save_single_prediction(db_config, active_input_df, active_prediction,
                                                active_probability, active_recommendation, active_machine_label)
-                        st.success("Saved to Aiven MySQL.")
+                        st.success(f"Saved to {db_storage_name}.")
                     except Exception as exc:
                         st.error(f"Could not save: {exc}")
         with sc2:
             if st.button("Save Full Dataset Batch", use_container_width=True):
-                if not all([db_host, db_user, db_password, db_name]):
-                    st.error("Configure MySQL in the sidebar first.")
+                if not db_ready:
+                    st.error("Configure database storage in the sidebar first.")
                 else:
                     try:
                         run_id = save_batch_predictions(db_config, scored_df, source_name)
-                        st.success(f"Batch saved. run_id: {run_id[:8]}...")
+                        st.success(f"Batch saved to {db_storage_name}. run_id: {run_id[:8]}...")
                     except Exception as exc:
                         st.error(f"Could not save batch: {exc}")
 
@@ -1042,13 +1078,13 @@ This helps when your dataset column names are different from the project CSV.
                         key=f"download_{file_index}_{dataset_name}",
                     )
 
-                    if st.button("Save This Dataset Batch to MySQL", key=f"save_dataset_{file_index}_{dataset_name}", use_container_width=True):
-                        if not all([db_host, db_user, db_password, db_name]):
-                            st.error("Configure MySQL in the sidebar first.")
+                    if st.button(f"Save This Dataset Batch to {db_storage_name}", key=f"save_dataset_{file_index}_{dataset_name}", use_container_width=True):
+                        if not db_ready:
+                            st.error("Configure database storage in the sidebar first.")
                         else:
                             try:
                                 run_id = save_batch_predictions(db_config, scored_custom_df, dataset_name)
-                                st.success(f"Saved to MySQL. run_id: {run_id[:8]}...")
+                                st.success(f"Saved to {db_storage_name}. run_id: {run_id[:8]}...")
                             except Exception as exc:
                                 st.error(f"Could not save dataset batch: {exc}")
 
@@ -1351,9 +1387,9 @@ with tab_workflow:
                 st.markdown("**Deployment Details**")
                 st.markdown("""
                 - **Platform:** Streamlit Community Cloud (free tier)
-                - **Database:** Aiven MySQL (free tier, SSL auto-enabled)
+                - **Database:** Free SQLite by default, MySQL optional
                 - **Auto-train:** App self-trains on first launch if artifacts missing
-                - **Secrets:** MySQL credentials in Streamlit Secrets (never in code)
+                - **Secrets:** MySQL credentials are optional and only needed for remote MySQL
                 - **SHAP:** Loaded at runtime, cached with `@st.cache_resource`
                 """)
 
@@ -1370,14 +1406,14 @@ with tab_workflow:
 # TAB 6 â€” DATABASE CONSOLE
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 with tab_database:
-    st.subheader("Aiven MySQL Database Console")
-    st.markdown("Save and query predictions from your live cloud database.")
+    st.subheader(f"{db_storage_name} Database Console")
+    st.markdown("Save and query predictions from the database selected in the sidebar.")
 
     rc1, rc2 = st.columns([1.2, 1])
     with rc1:
         if st.button("Refresh Recent Records", use_container_width=True):
-            if not all([db_host, db_user, db_password, db_name]):
-                st.error("Load Cloud DB Settings in the sidebar first.")
+            if not db_ready:
+                st.error("Configure database storage in the sidebar first.")
             else:
                 try:
                     rec = fetch_recent_predictions(db_config, limit=25)
@@ -1403,7 +1439,15 @@ with tab_database:
 
     with rc2:
         st.markdown("**Connection Info**")
-        if db_host:
+        if db_backend == "sqlite":
+            st.markdown(f"""
+- **Type:** `Free SQLite`
+- **File:** `{sqlite_path}`
+- **Cost:** `Free`
+- **Login Required:** `No`
+            """)
+            st.caption("For classroom demo and local use, SQLite is the easiest free option.")
+        elif db_host:
             st.markdown(f"""
 - **Host:** `{db_host}`
 - **Port:** `{db_port}`
@@ -1412,12 +1456,12 @@ with tab_database:
 - **SSL:** {"Auto (Aiven)" if "aivencloud.com" in str(db_host) else "Standard"}
             """)
         else:
-            st.info("Load Cloud DB Settings to see connection info.")
+            st.info("Fill database settings to see connection info.")
 
         st.markdown("**Tables**")
         st.markdown("- `prediction_runs` - one row per save session\n- `machine_predictions` - one row per machine")
 
-        sql_path = Path("sql") / "init_mysql.sql"
+        sql_path = Path("sql") / ("init_sqlite.sql" if db_backend == "sqlite" else "init_mysql.sql")
         if sql_path.exists():
             with st.expander("View SQL Setup Script"):
                 st.code(sql_path.read_text(encoding="utf-8"), language="sql")
