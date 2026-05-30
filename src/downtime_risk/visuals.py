@@ -45,10 +45,33 @@ def risk_distribution_chart(scored_df: pd.DataFrame):
         scored_df,
         x="risk_probability",
         nbins=30,
+        range_x=[0, 1],
         title="Risk Probability Distribution",
         color_discrete_sequence=["#0f4c5c"],
     )
-    fig.update_layout(template="plotly_white", xaxis_tickformat=".0%", margin=dict(l=10, r=10, t=55, b=10))
+    fig.update_traces(
+        xbins=dict(start=0, end=1, size=0.05),
+        marker_line_color="#f8fafc",
+        marker_line_width=1,
+        opacity=0.92,
+    )
+    unique_scores = scored_df["risk_probability"].round(6).nunique() if len(scored_df) else 0
+    if unique_scores <= 1 and len(scored_df):
+        score = float(scored_df["risk_probability"].iloc[0])
+        fig.add_vline(
+            x=score,
+            line_dash="dash",
+            line_color="#edae49",
+            annotation_text=f"All rows: {score:.0%}",
+            annotation_position="top",
+        )
+    fig.update_layout(
+        template="plotly_white",
+        xaxis_tickformat=".0%",
+        xaxis_range=[0, 1],
+        bargap=0.08,
+        margin=dict(l=10, r=10, t=55, b=10),
+    )
     return fig
 
 

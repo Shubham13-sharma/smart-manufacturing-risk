@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.downtime_risk.data import (
+    COLUMN_ALIASES,
     FEATURE_COLUMNS,
     load_dataset_from_csv,
     read_flexible_csv,
@@ -1010,10 +1011,13 @@ This helps when your dataset column names are different from the project CSV.
                 map_cols = st.columns(2)
                 for feature_index, feature in enumerate(FEATURE_COLUMNS):
                     guessed_index = 0
-                    simple_feature = feature.replace("_", " ").lower()
+                    feature_aliases = [
+                        feature.replace("_", " ").lower(),
+                        *[alias.replace("_", " ").lower() for alias in COLUMN_ALIASES.get(feature, [])],
+                    ]
                     for option_index, option in enumerate(source_options):
                         simple_option = str(option).replace("_", " ").lower()
-                        if simple_option == simple_feature or simple_feature in simple_option:
+                        if any(simple_option == alias or alias in simple_option or simple_option in alias for alias in feature_aliases):
                             guessed_index = option_index
                             break
                     with map_cols[feature_index % 2]:
@@ -1047,6 +1051,13 @@ This helps when your dataset column names are different from the project CSV.
                 scored_key = f"scored_dataset_{file_index}_{dataset_name}"
                 scored_custom_df = st.session_state.get(scored_key)
                 if scored_custom_df is not None:
+                    probability_unique_count = scored_custom_df["risk_probability"].round(6).nunique()
+                    mapped_feature_count = sum(1 for selected_column in mapping.values() if selected_column is not None)
+                    if mapped_feature_count == 0 or probability_unique_count <= 1:
+                        st.warning(
+                            "This dataset is producing almost the same risk score for every row. "
+                            "Check the feature column mapping above, then click `Run This Dataset` again."
+                        )
                     dataset_kpis = build_kpi_frame(scored_custom_df)
                     comparison_rows.append(
                         {
@@ -1103,10 +1114,18 @@ This helps when your dataset column names are different from the project CSV.
                 x="Dataset",
                 y="Average Risk Numeric",
                 color="High Risk",
+                text="Average Risk Numeric",
                 title="Average Risk by Dataset",
                 color_continuous_scale=["#2a9d8f", "#edae49", "#d1495b"],
             )
-            fig_compare.update_layout(template="plotly_white", yaxis_title="Average Risk (%)", coloraxis_showscale=False)
+            fig_compare.update_traces(texttemplate="%{y:.1f}%", textposition="outside", marker_line_color="#f8fafc", marker_line_width=1)
+            fig_compare.update_layout(
+                template="plotly_white",
+                yaxis_title="Average Risk (%)",
+                yaxis_range=[0, max(5, float(chart_df["Average Risk Numeric"].max()) * 1.2)],
+                coloraxis_showscale=False,
+                bargap=0.35,
+            )
             st.plotly_chart(fig_compare, use_container_width=True)
             riskiest_dataset = chart_df.sort_values("Average Risk Numeric", ascending=False).iloc[0]
             st.info(
