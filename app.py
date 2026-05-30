@@ -201,28 +201,32 @@ h2,h3,p,label,.stCaption,.stMarkdown,.stText{color:#102a43!important;}
     border:1px dashed #94a3b8!important;color:#102a43!important;}
 .stAlert{color:#102a43!important;}
 .stExpander summary,details summary{color:#102a43!important;font-weight:700!important;}
+[data-testid="stSidebar"]{
+    background:#f8fafc!important;
+    border-right:1px solid #d9e2ef!important;
+}
 [data-testid="stSidebar"] .stButton>button{
     background:linear-gradient(135deg,#edae49 0%,#d97706 100%)!important;color:#111827!important;}
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3,
 [data-testid="stSidebar"] p,[data-testid="stSidebar"] label,[data-testid="stSidebar"] .stMarkdown,
 [data-testid="stSidebar"] .stText,[data-testid="stSidebar"] .stCaption,[data-testid="stSidebar"] div{
-    color:#f8fafc!important;}
-[data-testid="stSidebar"] small{color:#cbd5e1!important;}
+    color:#102a43!important;}
+[data-testid="stSidebar"] small{color:#52616f!important;}
 [data-testid="stSidebar"] input,[data-testid="stSidebar"] textarea{
-    color:#fff!important;background-color:#0f172a!important;}
+    color:#0f172a!important;background-color:#ffffff!important;}
 [data-testid="stSidebar"] [data-baseweb="input"] input,
 [data-testid="stSidebar"] [data-baseweb="base-input"] input{
-    color:#fff!important;background:#0f172a!important;border:1px solid #334155!important;}
+    color:#0f172a!important;background:#ffffff!important;border:1px solid #cbd5e1!important;}
 [data-testid="stSidebar"] [data-testid="stFileUploader"] section{
-    background:#111827!important;
-    border:1px dashed #64748b!important;
+    background:#ffffff!important;
+    border:1px dashed #94a3b8!important;
     border-radius:14px!important;
 }
 [data-testid="stSidebar"] [data-testid="stFileUploader"] section *{
-    color:#f8fafc!important;
+    color:#102a43!important;
 }
 [data-testid="stSidebar"] [data-testid="stFileUploader"] small{
-    color:#cbd5e1!important;
+    color:#52616f!important;
 }
 [data-testid="stSidebar"] [data-testid="stFileUploader"] button{
     background:#edae49!important;
@@ -232,8 +236,8 @@ h2,h3,p,label,.stCaption,.stMarkdown,.stText{color:#102a43!important;}
     font-weight:800!important;
 }
 [data-testid="stSidebar"] [data-testid="stFileUploader"] svg{
-    color:#f8fafc!important;
-    fill:#f8fafc!important;
+    color:#102a43!important;
+    fill:#102a43!important;
 }
 [data-testid="stFileUploader"] section{
     background:#111827!important;
